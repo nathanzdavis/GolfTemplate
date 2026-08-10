@@ -1,0 +1,71 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1233149941 &-6025000786359728421
+AudioContainerElement:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: grass3_{-6025000786359728421}
+  m_AudioClip: {fileID: 8300000, guid: c0cc3e07387948e418701d0b1bcbcf6c, type: 3}
+  m_Volume: 0
+  m_Enabled: 1
+--- !u!1233149941 &-4330494011686235080
+AudioContainerElement:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: grass1_{-4330494011686235080}
+  m_AudioClip: {fileID: 8300000, guid: d82e9613ea4b526439de31eba2eab555, type: 3}
+  m_Volume: 0
+  m_Enabled: 1
+--- !u!1233149941 &-250991000991268778
+AudioContainerElement:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: grass_{-250991000991268778}
+  m_AudioClip: {fileID: 8300000, guid: 3e0413d9468012841aeb832ce3701b7f, type: 3}
+  m_Volume: 0
+  m_Enabled: 1
+--- !u!1307931743 &6418180475301049370
+AudioRandomContainer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: Footstep_Grass
+  m_Volume: -10
+  m_Pitch: 500
+  m_AutomaticTriggerTime: 1
+  m_LoopCount: 1
+  m_VolumeRandomizationRange: {x: -2, y: 2}
+  m_PitchRandomizationRange: {x: 0, y: 500}
+  m_AutomaticTriggerTimeRandomizationRange: {x: -0.5, y: 0.5}
+  m_LoopCountRandomizationRange: {x: 0, y: 0}
+  m_Elements:
+  - {fileID: -250991000991268778}
+  - {fileID: -4330494011686235080}
+  - {fileID: 7655602436142396064}
+  - {fileID: -6025000786359728421}
+  m_AvoidRepeatingLast: 0
+  m_PlaybackMode: 2
+  m_TriggerMode: 0
+  m_AutomaticTriggerMode: 0
+  m_LoopMode: 0
+  m_VolumeRandomizationEnabled: 1
+  m_PitchRandomizationEnabled: 1
+  m_AutomaticTriggerTimeRandomizationEnabled: 1
+  m_LoopCountRandomizationEnabled: 0
+--- !u!1233149941 &7655602436142396064
+AudioContainerElement:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: grass2_{7655602436142396064}
+  m_AudioClip: {fileID: 8300000, guid: 48b3c28ba3b57b44c966a0ee50459e46, type: 3}
+  m_Volume: 0
+  m_Enabled: 1

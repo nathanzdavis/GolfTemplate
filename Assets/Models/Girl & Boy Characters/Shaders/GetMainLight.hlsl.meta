@@ -1,0 +1,14 @@
+fileFormatVersion: 2
+guid: 7546e92a9b484e16b5dac2b94a2554af
+ShaderIncludeImporter:
+  externalObjects: {}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 326083
+  packageName: Casual Boy & Girl low poly characters
+  packageVersion: 1.0
+  assetPath: Assets/Girl & Boy Characters/Shaders/GetMainLight.hlsl
+  uploadId: 771637
