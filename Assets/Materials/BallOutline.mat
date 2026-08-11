@@ -103,7 +103,7 @@ Material:
     - _Metallic: 0
     - _OcclusionStrength: 1
     - _Outline_Fade_Distance: 75
-    - _Outline_Thickness: 0.0001
+    - _Outline_Thickness: 0.00015
     - _Parallax: 0.005
     - _QueueControl: 0
     - _QueueOffset: 0

@@ -159,6 +159,11 @@ namespace StarterAssets
         {
             _hasAnimator = TryGetComponent(out _animator);
 
+            if (GetComponent<GolfController>().preparingShot)
+            {
+                return;
+            }
+                
             JumpAndGravity();
             GroundedCheck();
             Move();

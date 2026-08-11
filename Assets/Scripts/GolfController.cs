@@ -1,85 +1,128 @@
+using Unity.Cinemachine;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
 public class GolfController : MonoBehaviour
 {
+    // ============================================================
+    // REFERENCES
+    // ============================================================
+
     [Header("References")]
     [SerializeField] private CharacterController characterController;
     [SerializeField] private Animator animator;
     [SerializeField] private Transform cameraTransform;
+    [SerializeField] private Transform golfCameraTransform;
+
+    [Header("Golf Club")]
+    [SerializeField] private float clubLerpSpeed = 10f;
+    [SerializeField] private Transform golfClub;
+    [SerializeField] private Transform clubPositionReady;
+    [SerializeField] private Transform clubPositionNotReady;
+
+    [Header("Downswing Speed")]
+    [SerializeField] private float minimumDownswingSpeed = 0.5f;
+    [SerializeField] private float maximumDownswingSpeed = 2.0f;
+
+    // ============================================================
+    // INPUT
+    // ============================================================
 
     [Header("Input")]
     [SerializeField] private InputActionReference prepareShotAction;
     [SerializeField] private InputActionReference shootAction;
 
+    // ============================================================
+    // GOLF BALL
+    // ============================================================
+
     [Header("Golf Ball")]
     [SerializeField] private LayerMask ballLayer;
-    [SerializeField] private float ballDetectionRadius = 1.0f;
+    [SerializeField] private float ballDetectionRadius = 1f;
+
+    // ============================================================
+    // SHOT
+    // ============================================================
 
     [Header("Shot")]
     [SerializeField] private float maxShotForce = 20f;
     [SerializeField] private float shotAngle = 45f;
     [SerializeField] private float chargeSpeed = 20f;
 
-    [Header("Golf Camera")]
-    [SerializeField] private float golfCameraDistance = 4f;
-    [SerializeField] private float golfCameraHeight = 1.6f;
-    [SerializeField] private float golfCameraSmoothness = 15f;
+    // ============================================================
+    // SHOT POSITIONING
+    // ============================================================
 
-    [Header("Prepare Setup")]
-    [SerializeField] private float prepareMoveSpeed = 3.5f;
-    [SerializeField] private float prepareRotationSpeed = 8f;
-    [SerializeField] private float prepareCameraPitch = 15f;
-    [SerializeField] private float prepareCameraLerpSpeed = 5f;
+    [Header("Shot Positioning")]
+    [SerializeField] private float playerBallDistance = 1f;
+    [SerializeField] private float orbitSpeed = 2f;
+    [SerializeField] private float orbitMoveSpeed = 12f;
+    [SerializeField] private float orbitRotationSpeed = 720f;
 
-    private Vector3 golfBallCenter;
     private float orbitAngle;
-    private float orbitRadius;
-    private Quaternion originalCameraRotation;
+    private Vector3 prepareTargetPosition;
+    private Quaternion prepareTargetRotation;
 
     // ============================================================
-    // SWING SETTINGS
+    // SWING ANIMATION
     // ============================================================
 
     [Header("Swing Animation")]
-    [SerializeField] private float downSwingSpeed = 3.0f;
+    [SerializeField] private float downSwingSpeed = 3f;
     [SerializeField] private float hitFrame = 35f;
-
-    private bool swingPlaying;
-    private bool ballHit;
-    private float swingFrame;
 
     private const float SwingTopFrame = 26f;
     private const float SwingTotalFrames = 60f;
 
-    private bool swingReleased;
-
-    [Header("Shot Positioning")]
-    [SerializeField] private float orbitSpeed = 2.0f;
-    [SerializeField] private float playerBallDistance = 0.8f;
-    [SerializeField] private float maxPrepareDistance = 1.25f;
+    // ============================================================
+    // ANIMATOR
+    // ============================================================
 
     [Header("Animator Parameters")]
     [SerializeField] private string preparingParameter = "Preparing";
     [SerializeField] private string chargeParameter = "Charge";
+    [SerializeField] private string speedParameter = "Speed";
+
+    // ============================================================
+    // RUNTIME STATE
+    // ============================================================
 
     private Rigidbody golfBall;
-    private bool preparingShot;
-    private float chargeAmount;
-    private static readonly int SwingState = Animator.StringToHash("GolfSwing");
-    private Vector3 shotBallPosition;
-    private StarterAssets.StarterAssetsInputs starterInputs;
-    [SerializeField] private float preparePositionLerpSpeed = 8f;
+    private Vector3 golfBallCenter;
 
-    private bool movingToPreparePosition;
-    private Vector3 prepareTargetPosition;
+    private float chargeAmount;
+    private float swingFrame;
+
+    private bool swingPlaying;
+    private bool swingReleased;
+    private bool ballHit;
+
+    [HideInInspector]
+    public bool preparingShot;
+
+    private StarterAssets.StarterAssetsInputs starterInputs;
+
+    private CinemachineVirtualCamera normalCamera;
+    private CinemachineVirtualCamera golfCamera;
+
+    private static readonly int SwingState =
+        Animator.StringToHash("GolfSwing");
+    private bool swingActive;
+
+
+    // ============================================================
+    // UNITY LIFECYCLE
+    // ============================================================
 
     private void Awake()
     {
         if (characterController == null)
             characterController = GetComponent<CharacterController>();
 
-        starterInputs = GetComponent<StarterAssets.StarterAssetsInputs>();
+        starterInputs =
+            GetComponent<StarterAssets.StarterAssetsInputs>();
+
+        CacheCameras();
     }
 
     private void OnEnable()
@@ -87,6 +130,7 @@ public class GolfController : MonoBehaviour
         if (prepareShotAction != null)
         {
             prepareShotAction.action.Enable();
+
             prepareShotAction.action.started += PrepareStarted;
             prepareShotAction.action.canceled += PrepareCanceled;
         }
@@ -94,6 +138,7 @@ public class GolfController : MonoBehaviour
         if (shootAction != null)
         {
             shootAction.action.Enable();
+
             shootAction.action.started += ShootStarted;
             shootAction.action.canceled += ShootCanceled;
         }
@@ -105,6 +150,7 @@ public class GolfController : MonoBehaviour
         {
             prepareShotAction.action.started -= PrepareStarted;
             prepareShotAction.action.canceled -= PrepareCanceled;
+
             prepareShotAction.action.Disable();
         }
 
@@ -112,100 +158,88 @@ public class GolfController : MonoBehaviour
         {
             shootAction.action.started -= ShootStarted;
             shootAction.action.canceled -= ShootCanceled;
+
             shootAction.action.Disable();
         }
     }
 
     private void Update()
     {
+        // Smoothly move the club between its two positions.
+        UpdateGolfClub();
+
         if (!preparingShot)
             return;
 
-        // Completely disable normal character movement.
-        if (starterInputs != null)
-        {
-            starterInputs.MoveInput(Vector2.zero);
-        }
-
-        // Remove vertical camera input.
+        DisablePlayerMovement();
         LockVerticalCameraInput();
 
-        UpdateBallTarget();
+        // Smoothly move and rotate into the shot position.
+        UpdatePreparePosition();
 
         if (golfBall == null)
             return;
 
-        if (movingToPreparePosition)
-        {
-            MoveToPreparePosition();
-            return;
-        }
-
-        OrbitBall();
         UpdateCharge();
     }
 
-    private void LockVerticalCameraInput()
+    private void UpdateGolfClub()
     {
-        if (starterInputs == null)
+        if (golfClub == null ||
+            clubPositionReady == null ||
+            clubPositionNotReady == null)
             return;
 
-        Vector2 look = starterInputs.look;
+        Transform target =
+            preparingShot
+                ? clubPositionReady
+                : clubPositionNotReady;
 
-        // Allow horizontal camera movement.
-        // Completely disable vertical camera movement.
-        look.y = 0f;
+        // Smoothly move the club to the target.
+        golfClub.position =
+            Vector3.Lerp(
+                golfClub.position,
+                target.position,
+                clubLerpSpeed * Time.deltaTime
+            );
 
-        starterInputs.LookInput(look);
+        // Smoothly rotate the club to the target.
+        golfClub.rotation =
+            Quaternion.Slerp(
+                golfClub.rotation,
+                target.rotation,
+                clubLerpSpeed * Time.deltaTime
+            );
     }
 
-    private void MoveToPreparePosition()
+    // ============================================================
+    // CAMERA
+    // ============================================================
+
+    private void CacheCameras()
     {
-        Vector3 currentPosition = transform.position;
-
-        Vector3 targetPosition = prepareTargetPosition;
-        targetPosition.y = currentPosition.y;
-
-        // Move at a constant speed instead of asymptotic Lerp.
-        Vector3 newPosition = Vector3.MoveTowards(
-            currentPosition,
-            targetPosition,
-            prepareMoveSpeed * Time.deltaTime
-        );
-
-        Vector3 movement = newPosition - currentPosition;
-        movement.y = 0f;
-
-        characterController.Move(movement);
-
-        // Smoothly face the ball.
-        Vector3 lookDirection = golfBallCenter - transform.position;
-        lookDirection.y = 0f;
-
-        if (lookDirection.sqrMagnitude > 0.001f)
+        if (cameraTransform != null)
         {
-            Quaternion targetRotation =
-                Quaternion.LookRotation(lookDirection);
-
-            transform.rotation = Quaternion.Slerp(
-                transform.rotation,
-                targetRotation,
-                prepareRotationSpeed * Time.deltaTime
-            );
+            normalCamera =
+                cameraTransform.GetComponent<CinemachineVirtualCamera>();
         }
 
-        // Stop once we reach the target.
-        if (Vector3.Distance(transform.position, targetPosition) <= 0.01f)
+        if (golfCameraTransform != null)
         {
-            movingToPreparePosition = false;
-
-            characterController.Move(
-                targetPosition - transform.position
-            );
-
-            FaceBallImmediately();
+            golfCamera =
+                golfCameraTransform.GetComponent<CinemachineVirtualCamera>();
         }
     }
+
+    private void SetGolfCameraActive(bool active)
+    {
+        if (normalCamera != null)
+            normalCamera.Priority = active ? 0 : 1;
+
+        if (golfCamera != null)
+            golfCamera.Priority = active ? 1 : 0;
+    }
+
 
     // ============================================================
     // PREPARE SHOT
@@ -222,84 +256,226 @@ public class GolfController : MonoBehaviour
 
         golfBallCenter = golfBall.position;
 
-        // Current distance from player to ball.
-        Vector3 offset =
-            transform.position - golfBallCenter;
+        // Disable CharacterController while manually positioning the player.
+        SetCharacterControllerEnabled(false);
 
-        offset.y = 0f;
+        // Calculate the initial position on the LEFT side of the ball
+        // relative to the current camera.
+        CalculateInitialOrbitPosition();
 
-        orbitRadius = offset.magnitude;
+        // Face the ball.
+        UpdatePrepareRotation();
 
-        if (orbitRadius < 0.1f)
-        {
-            preparingShot = false;
-            golfBall = null;
-            return;
-        }
+        SetPreparingAnimation(true);
 
-        // --------------------------------------------------------
-        // MOVE PLAYER TO CAMERA'S LEFT SIDE OF BALL
-        // --------------------------------------------------------
-
-        Vector3 cameraLeft = -cameraTransform.right;
-
-        cameraLeft.y = 0f;
-        cameraLeft.Normalize();
-
-        Vector3 targetPosition =
-            golfBallCenter +
-            cameraLeft * orbitRadius;
-
-        // Temporarily disable CharacterController so we can
-        // reposition without it interfering.
-        prepareTargetPosition = targetPosition;
-        movingToPreparePosition = true;
-
-        // Recalculate orbit angle.
-        Vector3 newOffset =
-            transform.position - golfBallCenter;
-
-        newOffset.y = 0f;
-
-        orbitAngle = Mathf.Atan2(
-            newOffset.z,
-            newOffset.x
-        );
-
-        animator.SetBool(
-            preparingParameter,
-            true
-        );
-
-        if (starterInputs != null)
-        {
-            starterInputs.MoveInput(Vector2.zero);
-            starterInputs.LookInput(Vector2.zero);
-        }
-
-        UpdateGolfCamera(true);
+        // Switch to golf camera.
+        SetGolfCameraActive(true);
     }
 
     private void PrepareCanceled(InputAction.CallbackContext context)
     {
+        // Finish any active swing immediately.
+        FinishSwing();
+
         preparingShot = false;
 
-        chargeAmount = 0f;
+        SetPreparingAnimation(false);
 
-        animator.SetBool(preparingParameter, false);
-        animator.SetFloat(chargeParameter, 0f);
+        DisablePlayerMovement();
+
+        golfBall = null;
+
+        SetGolfCameraActive(false);
+
+        SetCharacterControllerEnabled(true);
+    }
+
+    private void CalculateInitialOrbitPosition()
+    {
+        Camera mainCamera = Camera.main;
+
+        if (mainCamera == null)
+            return;
+
+        Vector3 leftDirection =
+            -mainCamera.transform.right;
+
+        leftDirection.y = 0f;
+
+        if (leftDirection.sqrMagnitude < 0.001f)
+            return;
+
+        leftDirection.Normalize();
+
+        orbitAngle = Mathf.Atan2(
+            leftDirection.z,
+            leftDirection.x
+        );
+
+        prepareTargetPosition =
+            golfBallCenter +
+            leftDirection * playerBallDistance;
+
+        prepareTargetPosition.y =
+            transform.position.y;
+    }
+
+
+    // ============================================================
+    // PREPARE POSITIONING
+    // ============================================================
+
+    private void CalculatePreparePosition()
+    {
+        Camera mainCamera = Camera.main;
+
+        if (mainCamera == null)
+            return;
+
+        // Screen-left relative to the actual rendered camera.
+        Vector3 leftDirection =
+            -mainCamera.transform.right;
+
+        // Ignore camera pitch.
+        leftDirection.y = 0f;
+
+        if (leftDirection.sqrMagnitude < 0.001f)
+            return;
+
+        leftDirection.Normalize();
+
+        // Fixed distance from the golf ball.
+        prepareTargetPosition =
+            golfBallCenter +
+            leftDirection * playerBallDistance;
+
+        // Preserve the player's current height.
+        prepareTargetPosition.y =
+            transform.position.y;
+    }
+
+    private void CalculatePrepareRotation()
+    {
+        Vector3 directionToBall =
+            golfBallCenter -
+            prepareTargetPosition;
+
+        directionToBall.y = 0f;
+
+        if (directionToBall.sqrMagnitude < 0.001f)
+            return;
+
+        prepareTargetRotation =
+            Quaternion.LookRotation(directionToBall);
+    }
+
+    private void UpdatePreparePosition()
+    {
+        if (golfBall == null)
+            return;
+
+        // Read horizontal look input.
+        float horizontalInput = 0f;
 
         if (starterInputs != null)
         {
-            starterInputs.MoveInput(Vector2.zero);
-            starterInputs.LookInput(Vector2.zero);
+            horizontalInput = starterInputs.look.x;
         }
 
-        golfBall = null;
+        // Invert the input so:
+        // Mouse LEFT  = orbit LEFT
+        // Mouse RIGHT = orbit RIGHT
+        orbitAngle -=
+            horizontalInput *
+            orbitSpeed *
+            Time.deltaTime;
+
+        // Calculate position around the ball.
+        Vector3 orbitDirection = new Vector3(
+            Mathf.Cos(orbitAngle),
+            0f,
+            Mathf.Sin(orbitAngle)
+        );
+
+        prepareTargetPosition =
+            golfBallCenter +
+            orbitDirection * playerBallDistance;
+
+        // Preserve player's current height.
+        prepareTargetPosition.y =
+            transform.position.y;
+
+        // Smoothly move toward the orbit position.
+        transform.position =
+            Vector3.MoveTowards(
+                transform.position,
+                prepareTargetPosition,
+                orbitMoveSpeed * Time.deltaTime
+            );
+
+        // Always face the ball.
+        UpdatePrepareRotation();
+    }
+
+    private void UpdatePrepareRotation()
+    {
+        if (golfBall == null)
+            return;
+
+        Vector3 directionToBall =
+            golfBallCenter - transform.position;
+
+        directionToBall.y = 0f;
+
+        if (directionToBall.sqrMagnitude < 0.001f)
+            return;
+
+        prepareTargetRotation =
+            Quaternion.LookRotation(directionToBall);
+
+        transform.rotation =
+            Quaternion.RotateTowards(
+                transform.rotation,
+                prepareTargetRotation,
+                orbitRotationSpeed * Time.deltaTime
+            );
     }
 
     // ============================================================
-    // FIND BALL
+    // PLAYER / INPUT CONTROL
+    // ============================================================
+
+    private void DisablePlayerMovement()
+    {
+        if (starterInputs == null)
+            return;
+
+        starterInputs.MoveInput(Vector2.zero);
+    }
+
+    private void LockVerticalCameraInput()
+    {
+        if (starterInputs == null)
+            return;
+
+        Vector2 look = starterInputs.look;
+
+        // Horizontal camera movement is still allowed.
+        // Vertical camera movement is locked.
+        look.y = 0f;
+
+        starterInputs.LookInput(look);
+    }
+
+    private void SetCharacterControllerEnabled(bool enabled)
+    {
+        if (characterController != null)
+            characterController.enabled = enabled;
+    }
+
+
+    // ============================================================
+    // FIND GOLF BALL
     // ============================================================
 
     private void FindGolfBall()
@@ -311,7 +487,8 @@ public class GolfController : MonoBehaviour
         );
 
         float closestDistance = float.MaxValue;
-        Rigidbody closestBall = null;
+
+        golfBall = null;
 
         foreach (Collider hit in hits)
         {
@@ -320,168 +497,64 @@ public class GolfController : MonoBehaviour
             if (rb == null)
                 continue;
 
-            float distance = Vector3.Distance(
-                transform.position,
-                rb.position
-            );
-
-            if (distance < closestDistance)
-            {
-                closestDistance = distance;
-                closestBall = rb;
-            }
-        }
-
-        golfBall = closestBall;
-    }
-
-    private void UpdateBallTarget()
-    {
-        if (golfBall == null)
-        {
-            FindGolfBall();
-            return;
-        }
-
-        float distance = Vector3.Distance(
-            transform.position,
-            golfBall.position
-        );
-
-        if (distance > maxPrepareDistance)
-        {
-            golfBall = null;
-            preparingShot = false;
-
-            animator.SetBool(preparingParameter, false);
-        }
-    }
-
-    // ============================================================
-    // CAMERA
-    // ============================================================
-
-    private void UpdateGolfCamera(bool instant = false)
-    {
-        if (cameraTransform == null)
-            return;
-
-        // Camera should be directly behind the player.
-        Vector3 behindPlayer =
-            -transform.forward;
-
-        Vector3 targetPosition =
-            transform.position +
-            behindPlayer * golfCameraDistance;
-
-        targetPosition.y += golfCameraHeight;
-
-        if (instant)
-        {
-            cameraTransform.position =
-                targetPosition;
-
-            cameraTransform.rotation =
-                Quaternion.LookRotation(
-                    transform.position +
-                    Vector3.up * 1.2f -
-                    cameraTransform.position
+            float distance =
+                Vector3.Distance(
+                    transform.position,
+                    rb.position
                 );
 
-            return;
+            if (distance >= closestDistance)
+                continue;
+
+            closestDistance = distance;
+            golfBall = rb;
         }
-
-        cameraTransform.position =
-            Vector3.Lerp(
-                cameraTransform.position,
-                targetPosition,
-                golfCameraSmoothness * Time.deltaTime
-            );
-
-        Vector3 lookTarget =
-            transform.position +
-            Vector3.up * 1.2f;
-
-        Quaternion targetRotation =
-            Quaternion.LookRotation(
-                lookTarget -
-                cameraTransform.position
-            );
-
-        cameraTransform.rotation =
-            Quaternion.Slerp(
-                cameraTransform.rotation,
-                targetRotation,
-                golfCameraSmoothness * Time.deltaTime
-            );
     }
+
 
     // ============================================================
-    // ORBIT BALL
+    // ANIMATION
     // ============================================================
 
-    private void OrbitBall()
+    private void SetPreparingAnimation(bool preparing)
     {
-        if (golfBall == null || starterInputs == null)
+        if (animator == null)
             return;
 
-        float horizontalLook = starterInputs.look.x;
-
-        if (Mathf.Abs(horizontalLook) < 0.001f)
-        {
-            // Still keep the player exactly on the orbit.
-            LockPlayerToOrbit();
-            return;
-        }
-
-        // Rotate around the ball.
-        orbitAngle +=
-            horizontalLook *
-            orbitSpeed *
-            Time.deltaTime;
-
-        LockPlayerToOrbit();
-    }
-
-    private void FaceBallImmediately()
-    {
-        Vector3 direction =
-            golfBallCenter -
-            transform.position;
-
-        direction.y = 0f;
-
-        if (direction.sqrMagnitude < 0.001f)
-            return;
-
-        transform.rotation =
-            Quaternion.LookRotation(direction);
-    }
-
-    private void LockPlayerToOrbit()
-    {
-        Vector3 orbitOffset = new Vector3(
-            Mathf.Cos(orbitAngle),
-            0f,
-            Mathf.Sin(orbitAngle)
+        animator.SetBool(
+            preparingParameter,
+            preparing
         );
 
-        Vector3 targetPosition =
-            golfBallCenter +
-            orbitOffset * orbitRadius;
-
-        // CharacterController movement.
-        Vector3 movement =
-            targetPosition -
-            transform.position;
-
-        movement.y = 0f;
-
-        characterController.Move(movement);
-
-        // Force the player to face the ball.
-        FaceBallImmediately();
+        if (preparing)
+        {
+            animator.SetFloat(
+                speedParameter,
+                0f
+            );
+        }
     }
+
+    private void ResetShotState()
+    {
+        swingActive = false;
+
+        chargeAmount = 0f;
+        swingFrame = 0f;
+
+        swingPlaying = false;
+        swingReleased = false;
+        ballHit = false;
+
+        if (animator == null)
+            return;
+
+        animator.SetFloat(
+            chargeParameter,
+            0f
+        );
+    }
+
 
     // ============================================================
     // CHARGE
@@ -489,44 +562,11 @@ public class GolfController : MonoBehaviour
 
     private void UpdateCharge()
     {
-        // --------------------------------------------------------
-        // HOLDING SHOOT = CHARGE
-        // --------------------------------------------------------
-
         if (shootAction.action.IsPressed() && !swingReleased)
         {
-            chargeAmount += chargeSpeed * Time.deltaTime;
-            chargeAmount = Mathf.Clamp(chargeAmount, 0f, 100f);
-
-            animator.SetFloat(
-                chargeParameter,
-                chargeAmount
-            );
-
-            Debug.Log($"Golf Charge: {chargeAmount:F1}%");
-
-            // Charge controls frames 0 -> 26.
-            float normalizedTime =
-                (chargeAmount / 100f) *
-                (SwingTopFrame / SwingTotalFrames);
-
-            animator.Play(
-                SwingState,
-                1,
-                normalizedTime
-            );
-
-            animator.Update(0f);
-
-            // Keep track of the current animation frame.
-            swingFrame = chargeAmount / 100f * SwingTopFrame;
-
+            ChargeShot();
             return;
         }
-
-        // --------------------------------------------------------
-        // RELEASED = PLAY DOWNSWING
-        // --------------------------------------------------------
 
         if (swingPlaying)
         {
@@ -534,23 +574,61 @@ public class GolfController : MonoBehaviour
         }
     }
 
+    private void ChargeShot()
+    {
+        chargeAmount +=
+            chargeSpeed *
+            Time.deltaTime;
+
+        chargeAmount =
+            Mathf.Clamp(
+                chargeAmount,
+                0f,
+                100f
+            );
+
+        animator.SetFloat(
+            chargeParameter,
+            chargeAmount
+        );
+
+        // 0% = frame 0
+        // 100% = frame 26
+        float normalizedTime =
+            (chargeAmount / 100f) *
+            (SwingTopFrame / SwingTotalFrames);
+
+        animator.Play(
+            SwingState,
+            1,
+            normalizedTime
+        );
+
+        animator.Update(0f);
+
+        swingFrame =
+            (chargeAmount / 100f) *
+            SwingTopFrame;
+    }
+
+
     // ============================================================
     // START SWING
     // ============================================================
 
     private void ShootStarted(InputAction.CallbackContext context)
     {
-        if (!preparingShot)
+        if (!CanShoot())
             return;
 
-        if (golfBall == null)
-            return;
+        swingActive = true;
 
         chargeAmount = 0f;
+        swingFrame = 0f;
+
         swingReleased = false;
         swingPlaying = false;
         ballHit = false;
-        swingFrame = 0f;
 
         animator.SetFloat(
             chargeParameter,
@@ -566,16 +644,14 @@ public class GolfController : MonoBehaviour
         animator.Update(0f);
     }
 
+
     // ============================================================
-    // RELEASE SHOOT
+    // RELEASE SWING
     // ============================================================
 
     private void ShootCanceled(InputAction.CallbackContext context)
     {
-        if (!preparingShot)
-            return;
-
-        if (golfBall == null)
+        if (!CanShoot())
             return;
 
         if (chargeAmount <= 0f)
@@ -585,56 +661,78 @@ public class GolfController : MonoBehaviour
         swingPlaying = true;
         ballHit = false;
 
-        // Current frame is whatever the player charged to.
-        swingFrame =
-            (chargeAmount / 100f) *
-            SwingTopFrame;
+        float chargePercent =
+            chargeAmount / 100f;
 
-        Debug.Log(
-            $"Swing released at frame {swingFrame:F1}"
+        // Map the charge percentage from
+        // the upswing range (0-26)
+        // into the downswing-to-hit range (26-35).
+        swingFrame =
+            Mathf.Lerp(
+                SwingTopFrame,
+                hitFrame,
+                chargePercent
+            );
+
+        // Immediately show the corresponding
+        // downswing frame.
+        animator.Play(
+            SwingState,
+            1,
+            swingFrame / SwingTotalFrames
         );
+
+        animator.Update(0f);
     }
 
+    private bool CanShoot()
+    {
+        return preparingShot &&
+               golfBall != null &&
+               animator != null;
+    }
+
+
     // ============================================================
-    // PLAY DOWNSWING
+    // DOWNSWING
     // ============================================================
 
     private void UpdateDownSwing()
     {
-        // Advance the animation.
-        //
-        // downSwingSpeed = 1 means normal speed.
-        // downSwingSpeed = 3 means 3x speed.
-        // downSwingSpeed = 5 means 5x speed.
+        // Convert charge to 0-1.
+        float chargePercent =
+            chargeAmount / 100f;
+
+        // Low charge = slow downswing.
+        // High charge = fast downswing.
+        float currentDownswingSpeed =
+            Mathf.Lerp(
+                minimumDownswingSpeed,
+                maximumDownswingSpeed,
+                chargePercent
+            );
+
         swingFrame +=
-            downSwingSpeed *
+            currentDownswingSpeed *
             Time.deltaTime *
-            (SwingTotalFrames / 1f);
+            SwingTotalFrames;
 
-        // --------------------------------------------------------
-        // HIT THE BALL AT FRAME 35
-        // --------------------------------------------------------
-
+        // Hit the ball at frame 35.
         if (!ballHit && swingFrame >= hitFrame)
         {
             ballHit = true;
-
             HitGolfBall();
-
-            Debug.Log(
-                $"GOLF BALL HIT AT FRAME {swingFrame:F1}"
-            );
         }
 
-        // --------------------------------------------------------
-        // PLAY ANIMATION
-        // --------------------------------------------------------
+        // Finish the swing.
+        if (swingFrame >= SwingTotalFrames)
+        {
+            FinishSwing();
+            return;
+        }
 
         float normalizedTime =
             swingFrame / SwingTotalFrames;
-
-        normalizedTime =
-            Mathf.Clamp01(normalizedTime);
 
         animator.Play(
             SwingState,
@@ -643,37 +741,39 @@ public class GolfController : MonoBehaviour
         );
 
         animator.Update(0f);
+    }
 
-        // --------------------------------------------------------
-        // SWING FINISHED
-        // --------------------------------------------------------
+    private void FinishSwing()
+    {
+        if (!swingActive)
+            return;
 
-        if (swingFrame >= SwingTotalFrames)
+        swingActive = false;
+
+        swingFrame = 0f;
+
+        swingPlaying = false;
+        swingReleased = false;
+
+        chargeAmount = 0f;
+        ballHit = false;
+
+        if (animator != null)
         {
-            swingFrame = SwingTotalFrames;
-
-            swingPlaying = false;
-            swingReleased = false;
-
-            animator.Play(
-                SwingState,
-                1,
-                1f
-            );
-
-            animator.Update(0f);
-
-            chargeAmount = 0f;
-
             animator.SetFloat(
                 chargeParameter,
                 0f
             );
+
+            animator.SetTrigger(
+                "SwingFinished"
+            );
         }
     }
 
+
     // ============================================================
-    // HIT BALL
+    // HIT GOLF BALL
     // ============================================================
 
     private void HitGolfBall()
@@ -681,15 +781,24 @@ public class GolfController : MonoBehaviour
         if (golfBall == null)
             return;
 
-        // Camera's horizontal facing direction.
-        Vector3 forward = cameraTransform.forward;
+        Camera mainCamera = Camera.main;
+
+        if (mainCamera == null)
+            return;
+
+        Vector3 forward =
+            mainCamera.transform.forward;
 
         forward.y = 0f;
 
+        if (forward.sqrMagnitude < 0.001f)
+            return;
+
         forward.Normalize();
 
-        // Convert the horizontal direction into a 45 degree shot.
-        float angle = shotAngle * Mathf.Deg2Rad;
+        float angle =
+            shotAngle *
+            Mathf.Deg2Rad;
 
         Vector3 shotDirection =
             forward * Mathf.Cos(angle) +
@@ -697,16 +806,24 @@ public class GolfController : MonoBehaviour
 
         shotDirection.Normalize();
 
-        // Convert 0-100 charge into 0-1.
-        float chargeMultiplier = chargeAmount / 100f;
+        float chargeMultiplier =
+            chargeAmount / 100f;
 
-        float force = maxShotForce * chargeMultiplier;
+        float force =
+            maxShotForce *
+            chargeMultiplier;
 
-        golfBall.AddForce(
-            shotDirection * force,
-            ForceMode.Impulse
-        );
+        GolfBall ball = golfBall.GetComponent<GolfBall>();
+
+        if (ball != null)
+        {
+            ball.Launch(
+                shotDirection,
+                force
+            );
+        }
     }
+
 
     // ============================================================
     // DEBUG
