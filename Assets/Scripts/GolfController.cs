@@ -1,3 +1,4 @@
+using System;
 using Unity.Cinemachine;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -50,6 +51,42 @@ public class GolfController : MonoBehaviour
     [SerializeField] private float chargeSpeed = 20f;
 
     // ============================================================
+    // AUDIO
+    // ============================================================
+
+    [Header("Audio")]
+    [SerializeField] private AudioSource audioSource;
+    [SerializeField] private AudioSource chargeAudioSource;
+
+    [Header("Charge Sound")]
+    [SerializeField] private AudioClip chargeSound;
+    [SerializeField] private float chargePitchMin = 0.8f;
+    [SerializeField] private float chargePitchMax = 1.4f;
+
+    [Header("Swing Sounds")]
+    [SerializeField] private AudioClip lowChargeSwingSound;
+    [SerializeField] private AudioClip mediumChargeSwingSound;
+    [SerializeField] private AudioClip highChargeSwingSound;
+
+    [Header("Release Sounds")]
+    [SerializeField] private AudioClip lowChargeReleaseSound;
+    [SerializeField] private AudioClip mediumChargeReleaseSound;
+    [SerializeField] private AudioClip highChargeReleaseSound;
+
+    [Header("Hit Sounds")]
+    [SerializeField] private AudioClip lowPowerHitSound;
+    [SerializeField] private AudioClip mediumPowerHitSound;
+    [SerializeField] private AudioClip highPowerHitSound;
+
+    [Header("Hit Power Thresholds")]
+    [SerializeField, Range(0f, 1f)] private float mediumPowerThreshold = 0.33f;
+    [SerializeField, Range(0f, 1f)] private float highPowerThreshold = 0.66f;
+
+    [Header("Audio Variation")]
+    [SerializeField] private float hitPitchVariation = 0.08f;
+    [SerializeField] private float swingPitchVariation = 0.05f;
+
+    // ============================================================
     // SHOT POSITIONING
     // ============================================================
 
@@ -73,6 +110,7 @@ public class GolfController : MonoBehaviour
 
     private const float SwingTopFrame = 26f;
     private const float SwingTotalFrames = 60f;
+    private const float MinimumFinishFrame = 37f;
 
     // ============================================================
     // ANIMATOR
@@ -171,17 +209,23 @@ public class GolfController : MonoBehaviour
         if (!preparingShot)
             return;
 
-        DisablePlayerMovement();
+        // Always lock vertical camera input while preparing.
         LockVerticalCameraInput();
 
-        // Smoothly move and rotate into the shot position.
-        UpdatePreparePosition();
+        // Only disable movement and orbit around the ball
+        // if we actually have a ball to prepare around.
+        if (golfBall != null)
+        {
+            DisablePlayerMovement();
 
-        if (golfBall == null)
-            return;
+            // Smoothly move and rotate into the shot position.
+            UpdatePreparePosition();
+        }
 
+        // Charge the shot regardless of whether we have a ball.
         UpdateCharge();
     }
+
 
     private void UpdateGolfClub()
     {
@@ -247,35 +291,73 @@ public class GolfController : MonoBehaviour
 
     private void PrepareStarted(InputAction.CallbackContext context)
     {
+        // Try to find a nearby golf ball.
         FindGolfBall();
 
-        if (golfBall == null)
-            return;
-
+        // We can prepare a shot even if there is no ball nearby.
         preparingShot = true;
-
-        golfBallCenter = golfBall.position;
-
-        // Disable CharacterController while manually positioning the player.
-        SetCharacterControllerEnabled(false);
-
-        // Calculate the initial position on the LEFT side of the ball
-        // relative to the current camera.
-        CalculateInitialOrbitPosition();
-
-        // Face the ball.
-        UpdatePrepareRotation();
 
         SetPreparingAnimation(true);
 
-        // Switch to golf camera.
+        // Switch to golf camera regardless of whether
+        // there is a ball nearby.
         SetGolfCameraActive(true);
+
+        // If we found a ball, enter the normal ball-preparation mode.
+        if (golfBall != null)
+        {
+            golfBallCenter = golfBall.position;
+
+            // Disable CharacterController while manually positioning
+            // the player around the ball.
+            SetCharacterControllerEnabled(false);
+
+            // Calculate the initial position on the LEFT side of the ball
+            // relative to the current camera.
+            CalculateInitialOrbitPosition();
+
+            // Face the ball.
+            UpdatePrepareRotation();
+        }
+        else
+        {
+            // No ball nearby.
+            // Keep movement enabled while preparing.
+            SetCharacterControllerEnabled(true);
+
+            Camera mainCamera = Camera.main;
+
+            if (mainCamera != null)
+            {
+                // The player's forward direction should be the
+                // camera's right direction, so from the camera's
+                // perspective the player is facing to the right.
+                Vector3 rightDirection = mainCamera.transform.right;
+
+                // Ignore camera pitch.
+                rightDirection.y = 0f;
+
+                if (rightDirection.sqrMagnitude > 0.001f)
+                {
+                    rightDirection.Normalize();
+
+                    transform.rotation =
+                        Quaternion.LookRotation(rightDirection);
+                }
+            }
+        }
+
+        // Switch to golf camera AFTER rotating the player.
+        SetGolfCameraActive(true);
+
     }
 
     private void PrepareCanceled(InputAction.CallbackContext context)
     {
         // Finish any active swing immediately.
         FinishSwing();
+
+        StopChargeSound();
 
         preparingShot = false;
 
@@ -564,7 +646,14 @@ public class GolfController : MonoBehaviour
     {
         if (shootAction.action.IsPressed() && !swingReleased)
         {
+            // Start the looping charge sound.
+            StartChargeSound();
+
             ChargeShot();
+
+            // Update pitch as the shot gets stronger.
+            UpdateChargeSound();
+
             return;
         }
 
@@ -630,6 +719,8 @@ public class GolfController : MonoBehaviour
         swingPlaying = false;
         ballHit = false;
 
+        StopChargeSound();
+
         animator.SetFloat(
             chargeParameter,
             0f
@@ -657,6 +748,15 @@ public class GolfController : MonoBehaviour
         if (chargeAmount <= 0f)
             return;
 
+        // Stop the looping charge sound.
+        StopChargeSound();
+
+        // Play release sound based on charge.
+        PlayReleaseSound();
+
+        // Play swing sound based on charge.
+        PlaySwingSound();
+
         swingReleased = true;
         swingPlaying = true;
         ballHit = false;
@@ -664,18 +764,13 @@ public class GolfController : MonoBehaviour
         float chargePercent =
             chargeAmount / 100f;
 
-        // Map the charge percentage from
-        // the upswing range (0-26)
-        // into the downswing-to-hit range (26-35).
         swingFrame =
             Mathf.Lerp(
-                SwingTopFrame,
                 hitFrame,
+                SwingTopFrame,
                 chargePercent
             );
 
-        // Immediately show the corresponding
-        // downswing frame.
         animator.Play(
             SwingState,
             1,
@@ -688,9 +783,9 @@ public class GolfController : MonoBehaviour
     private bool CanShoot()
     {
         return preparingShot &&
-               golfBall != null &&
                animator != null;
     }
+
 
 
     // ============================================================
@@ -724,8 +819,18 @@ public class GolfController : MonoBehaviour
             HitGolfBall();
         }
 
-        // Finish the swing.
-        if (swingFrame >= SwingTotalFrames)
+        // Determine how far the swing should finish based on charge.
+        // 0% charge  = frame 37
+        // 100% charge = frame 60
+        float finishFrame =
+            Mathf.Lerp(
+                MinimumFinishFrame,
+                SwingTotalFrames,
+                chargePercent
+            );
+
+        // Finish the swing once we reach the charge-dependent endpoint.
+        if (swingFrame >= finishFrame)
         {
             FinishSwing();
             return;
@@ -742,6 +847,7 @@ public class GolfController : MonoBehaviour
 
         animator.Update(0f);
     }
+
 
     private void FinishSwing()
     {
@@ -821,7 +927,139 @@ public class GolfController : MonoBehaviour
                 shotDirection,
                 force
             );
+
+            PlayHitSound();
         }
+    }
+
+    // ============================================================
+    // AUDIO
+    // ============================================================
+
+    private void StartChargeSound()
+    {
+        if (chargeAudioSource == null ||
+            chargeSound == null)
+            return;
+
+        chargeAudioSource.clip = chargeSound;
+        chargeAudioSource.loop = true;
+        chargeAudioSource.pitch = chargePitchMin;
+        chargeAudioSource.volume = 1f;
+
+        if (!chargeAudioSource.isPlaying)
+            chargeAudioSource.Play();
+    }
+
+    private void UpdateChargeSound()
+    {
+        if (chargeAudioSource == null ||
+            !chargeAudioSource.isPlaying)
+            return;
+
+        float chargePercent =
+            chargeAmount / 100f;
+
+        chargeAudioSource.pitch =
+            Mathf.Lerp(
+                chargePitchMin,
+                chargePitchMax,
+                chargePercent
+            );
+    }
+
+    private void StopChargeSound()
+    {
+        if (chargeAudioSource == null)
+            return;
+
+        chargeAudioSource.Stop();
+    }
+
+    private AudioClip GetChargeSound(AudioClip low,
+                                     AudioClip medium,
+                                     AudioClip high)
+    {
+        float chargePercent =
+            chargeAmount / 100f;
+
+        if (chargePercent < mediumPowerThreshold)
+            return low;
+
+        if (chargePercent < highPowerThreshold)
+            return medium;
+
+        return high;
+    }
+
+    private void PlaySwingSound()
+    {
+        if (audioSource == null)
+            return;
+
+        AudioClip clip =
+            GetChargeSound(
+                lowChargeSwingSound,
+                mediumChargeSwingSound,
+                highChargeSwingSound
+            );
+
+        if (clip == null)
+            return;
+
+        audioSource.pitch =
+            1f +
+            UnityEngine.Random.Range(
+                -swingPitchVariation,
+                swingPitchVariation
+            );
+
+        audioSource.PlayOneShot(clip);
+    }
+
+    private void PlayReleaseSound()
+    {
+        if (audioSource == null)
+            return;
+
+        AudioClip clip =
+            GetChargeSound(
+                lowChargeReleaseSound,
+                mediumChargeReleaseSound,
+                highChargeReleaseSound
+            );
+
+        if (clip == null)
+            return;
+
+        audioSource.pitch = 1f;
+
+        audioSource.PlayOneShot(clip);
+    }
+
+    private void PlayHitSound()
+    {
+        if (audioSource == null)
+            return;
+
+        AudioClip clip =
+            GetChargeSound(
+                lowPowerHitSound,
+                mediumPowerHitSound,
+                highPowerHitSound
+            );
+
+        if (clip == null)
+            return;
+
+        audioSource.pitch =
+            1f +
+            UnityEngine.Random.Range(
+                -hitPitchVariation,
+                hitPitchVariation
+            );
+
+        audioSource.PlayOneShot(clip);
     }
 
 
