@@ -67,6 +67,7 @@ namespace StarterAssets
         [Header("Cinemachine")]
         [Tooltip("The follow target set in the Cinemachine Virtual Camera that the camera will follow")]
         public GameObject CinemachineCameraTarget;
+        private bool cameraTargetLocked;
 
         [Tooltip("How far in degrees can you move the camera up")]
         public float TopClamp = 70.0f;
@@ -173,7 +174,21 @@ namespace StarterAssets
 
         private void LateUpdate()
         {
-            CameraRotation();
+            if (!cameraTargetLocked)
+            {
+                CameraRotation();
+            }      
+        }
+
+        public void SetCameraAngles(float yaw, float pitch)
+        {
+            _cinemachineTargetYaw = yaw;
+            _cinemachineTargetPitch = pitch;
+        }
+
+        public void SetCameraTargetLocked(bool locked)
+        {
+            cameraTargetLocked = locked;
         }
 
         private void AssignAnimationIDs()
