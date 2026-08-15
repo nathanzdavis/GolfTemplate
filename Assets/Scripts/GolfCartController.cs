@@ -29,32 +29,35 @@ public class GolfCartController : MonoBehaviour
     [SerializeField] private Transform seatPoint;
     [SerializeField] private Transform exitPoint;
 
-    [Header("Cart Camera")]
+    [Header("Camera")]
     [SerializeField] private CinemachineVirtualCamera normalCamera;
-    [SerializeField] private CinemachineVirtualCamera golfCartCamera;
+    [SerializeField] private Transform normalCameraTarget;
+    [SerializeField] private Vector3 cartCameraShoulderOffset;
 
-    [SerializeField] private Transform cartCameraTarget;
+    [Tooltip("How far in degrees can you move the camera up")]
+    public float TopClamp = 70.0f;
 
-    [SerializeField] private float bottomClamp = -30f;
-    [SerializeField] private float topClamp = 70f;
+    [Tooltip("How far in degrees can you move the camera down")]
+    public float BottomClamp = -30.0f;
 
-    [SerializeField] private float cameraAngleOverride = 0f;
+    [Tooltip("Additional degress to override the camera. Useful for fine tuning camera position when locked")]
+    public float CameraAngleOverride = 0.0f;
 
-    [SerializeField] private float cameraLookThreshold = 0.01f;
+    [Tooltip("For locking the camera position on all axis")]
+    public bool LockCameraPosition = false;
 
-    [SerializeField] private bool lockCameraPosition = false;
-
-    [SerializeField] private bool invertLookY = true;
-
-    private float cartCameraYaw;
-    private float cartCameraPitch;
-    private bool isCurrentDeviceMouse;
+    private float _cinemachineTargetYaw;
+    private float _cinemachineTargetPitch;
+    private Vector3 originalShoulderOffset;
+    private Vector3 previousCameraRotation;
 
     [Header("Input")]
+    private PlayerInput _playerInput;
     [SerializeField] private InputActionReference moveAction;
     [SerializeField] private InputActionReference lookAction;
     [SerializeField] private InputActionReference interactAction;
     [SerializeField] private InputActionReference shootAction;
+    private const float _threshold = 0.01f;
 
     [Header("Wheels")]
     [SerializeField] private WheelCollider frontLeftWheel;
@@ -112,9 +115,15 @@ public class GolfCartController : MonoBehaviour
     [Header("Engine Audio")]
     [SerializeField] private float idlePitch = 0.8f;
     [SerializeField] private float maxPitch = 1.6f;
-    [SerializeField] private float idleVolume = 0.35f;
+
+    [SerializeField] private float idleVolume = 0.2f;
     [SerializeField] private float maxVolume = 0.8f;
+
     [SerializeField] private float audioSmoothSpeed = 5f;
+
+    [Header("Engine Fade")]
+    [SerializeField] private float engineFadeSpeed = 2f;
+    [SerializeField] private float engineStopSpeed = 0.1f;
 
     [Header("Horn")]
     [SerializeField] private AudioSource hornAudio;
@@ -150,11 +159,22 @@ public class GolfCartController : MonoBehaviour
     private float cameraYaw;
     private float cameraPitch;
 
-
     private Transform previousPlayerParent;
     private Vector3 previousPlayerPosition;
     private Quaternion previousPlayerRotation;
 
+    [HideInInspector]
+    public bool IsCurrentDeviceMouse
+    {
+        get
+        {
+#if ENABLE_INPUT_SYSTEM
+            return _playerInput.currentControlScheme == "KeyboardMouse";
+#else
+				return false;
+#endif
+        }
+    }
 
     // ============================================================
     // UNITY
@@ -193,6 +213,10 @@ public class GolfCartController : MonoBehaviour
         {
             playerColliders = playerTransform.GetComponentsInChildren<Collider>();
         }
+
+        originalShoulderOffset = normalCamera.GetComponentInChildren<Cinemachine3rdPersonFollow>().ShoulderOffset;
+
+        _playerInput = thirdPersonController.GetComponent<PlayerInput>();
     }
 
     private void SetPlayerCartCollision(bool enabled)
@@ -266,52 +290,19 @@ public class GolfCartController : MonoBehaviour
 
     private void Update()
     {
-        if (!driving)
-            return;
-
-        KeepPlayerInSeat();
-
-        ReadInput();
-
-        UpdateEngineAudio();
-        UpdateDust();
-    }
-
-    private void CameraRotation()
-    {
-        if (lookInput.sqrMagnitude >= cameraLookThreshold && !lockCameraPosition)
+        if (driving)
         {
-            // Same mouse/controller handling as Starter Assets.
-            float deltaTimeMultiplier = thirdPersonController.IsCurrentDeviceMouse
-                ? 1.0f
-                : Time.deltaTime;
+            KeepPlayerInSeat();
 
-            cartCameraYaw += lookInput.x * deltaTimeMultiplier;
+            ReadInput();
 
-            float lookY = invertLookY
-                ? -lookInput.y
-                : lookInput.y;
-
-            cartCameraPitch += lookY * deltaTimeMultiplier;
+            UpdateEngineAudio();
+            UpdateDust();
         }
-
-        cartCameraYaw = ClampAngle(
-            cartCameraYaw,
-            float.MinValue,
-            float.MaxValue
-        );
-
-        cartCameraPitch = ClampAngle(
-            cartCameraPitch,
-            bottomClamp,
-            topClamp
-        );
-
-        cartCameraTarget.transform.rotation = Quaternion.Euler(
-            cartCameraPitch + cameraAngleOverride,
-            cartCameraYaw,
-            0f
-        );
+        else
+        {
+            UpdateExitedEngineAudio();
+        }
     }
 
     private void KeepPlayerInSeat()
@@ -340,6 +331,27 @@ public class GolfCartController : MonoBehaviour
         UpdateWheelMeshes();
 
         CameraRotation();
+    }
+
+    private void CameraRotation()
+    {
+        // if there is an input and camera position is not fixed
+        if (lookInput.sqrMagnitude >= _threshold)
+        {
+            //Don't multiply mouse input by Time.deltaTime;
+            float deltaTimeMultiplier = IsCurrentDeviceMouse ? 1.0f : Time.deltaTime;
+
+            _cinemachineTargetYaw += lookInput.x * deltaTimeMultiplier;
+            _cinemachineTargetPitch += lookInput.y * deltaTimeMultiplier;
+        }
+
+        // clamp our rotations so our values are limited 360 degrees
+        _cinemachineTargetYaw = ClampAngle(_cinemachineTargetYaw, float.MinValue, float.MaxValue);
+        _cinemachineTargetPitch = ClampAngle(_cinemachineTargetPitch, BottomClamp, TopClamp);
+
+        // Cinemachine will follow this target
+        normalCameraTarget.transform.rotation = Quaternion.Euler(_cinemachineTargetPitch + CameraAngleOverride,
+            _cinemachineTargetYaw, 0.0f);
     }
 
     // ============================================================
@@ -403,6 +415,10 @@ public class GolfCartController : MonoBehaviour
         if (playerAnimator != null)
             playerAnimator.SetBool(inCartParameter, true);
 
+        previousCameraRotation = normalCameraTarget.eulerAngles;
+
+        normalCamera.GetComponentInChildren<Cinemachine3rdPersonFollow>().ShoulderOffset = cartCameraShoulderOffset;
+
         // ------------------------------------------------------------
         // SAVE PLAYER STATE
         // ------------------------------------------------------------
@@ -444,6 +460,10 @@ public class GolfCartController : MonoBehaviour
         playerTransform.position = seatPoint.position;
         playerTransform.rotation = seatPoint.rotation;
 
+        normalCameraTarget.eulerAngles = previousCameraRotation;
+        _cinemachineTargetYaw = previousCameraRotation.y;
+        _cinemachineTargetPitch = previousCameraRotation.x;
+
         // ------------------------------------------------------------
         // ENTER CART
         // ------------------------------------------------------------
@@ -457,26 +477,17 @@ public class GolfCartController : MonoBehaviour
         lookInput = Vector2.zero;
 
         // ------------------------------------------------------------
-        // CAMERA
-        // ------------------------------------------------------------
-
-        if (normalCamera != null)
-            normalCamera.Priority = 0;
-
-        if (golfCartCamera != null)
-            golfCartCamera.Priority = 1;
-
-        // ------------------------------------------------------------
         // ENGINE
         // ------------------------------------------------------------
 
         if (engineAudio != null)
         {
-            engineAudio.pitch = idlePitch;
-            engineAudio.volume = idleVolume;
-
             if (!engineAudio.isPlaying)
+            {
+                engineAudio.pitch = idlePitch;
+                engineAudio.volume = 0f;
                 engineAudio.Play();
+            }
         }
     }
 
@@ -502,15 +513,14 @@ public class GolfCartController : MonoBehaviour
         if (playerAnimator != null)
             playerAnimator.SetBool(inCartParameter, false);
 
+        previousCameraRotation = normalCameraTarget.eulerAngles;
+
         driving = false;
 
         StopCart();
 
         StopAllDust();
         SetBrakeLights(false);
-
-        if (engineAudio != null)
-            engineAudio.Stop();
 
         // ------------------------------------------------------------
         // MOVE PLAYER OUTSIDE THE CART
@@ -548,16 +558,9 @@ public class GolfCartController : MonoBehaviour
             golfController.enabled = true;
         }
 
-
-        // ------------------------------------------------------------
-        // CAMERA
-        // ------------------------------------------------------------
-
-        if (golfCartCamera != null)
-            golfCartCamera.Priority = 0;
-
-        if (normalCamera != null)
-            normalCamera.Priority = 1;
+        normalCamera.GetComponentInChildren<Cinemachine3rdPersonFollow>().ShoulderOffset = originalShoulderOffset;
+        normalCameraTarget.eulerAngles = previousCameraRotation;
+        thirdPersonController.SetCameraAngles(previousCameraRotation.y, previousCameraRotation.x);
 
         moveInput = Vector2.zero;
         lookInput = Vector2.zero;
@@ -843,15 +846,13 @@ public class GolfCartController : MonoBehaviour
             speed / maxForwardSpeed
         );
 
+        // ------------------------------------------------------------
+        // PITCH
+        // ------------------------------------------------------------
+
         float targetPitch = Mathf.Lerp(
             idlePitch,
             maxPitch,
-            speedPercent
-        );
-
-        float targetVolume = Mathf.Lerp(
-            idleVolume,
-            maxVolume,
             speedPercent
         );
 
@@ -861,11 +862,82 @@ public class GolfCartController : MonoBehaviour
             audioSmoothSpeed * Time.deltaTime
         );
 
+        // ------------------------------------------------------------
+        // VOLUME
+        // ------------------------------------------------------------
+
+        float targetVolume = Mathf.Lerp(
+            idleVolume,
+            maxVolume,
+            speedPercent
+        );
+
         engineAudio.volume = Mathf.Lerp(
             engineAudio.volume,
             targetVolume,
             audioSmoothSpeed * Time.deltaTime
         );
+    }
+
+    private void UpdateExitedEngineAudio()
+    {
+        if (engineAudio == null || rb == null)
+            return;
+
+        float speed = rb.linearVelocity.magnitude;
+
+        // Cart is still rolling.
+        if (speed > engineStopSpeed)
+        {
+
+            float speedPercent = Mathf.Clamp01(
+                speed / maxForwardSpeed
+            );
+
+            float targetPitch = Mathf.Lerp(
+                idlePitch,
+                maxPitch,
+                speedPercent
+            );
+
+            float targetVolume = Mathf.Lerp(
+                idleVolume,
+                maxVolume,
+                speedPercent
+            );
+
+            engineAudio.pitch = Mathf.Lerp(
+                engineAudio.pitch,
+                targetPitch,
+                audioSmoothSpeed * Time.deltaTime
+            );
+
+            engineAudio.volume = Mathf.Lerp(
+                engineAudio.volume,
+                targetVolume,
+                audioSmoothSpeed * Time.deltaTime
+            );
+
+            return;
+        }
+
+        // ------------------------------------------------------------
+        // CART HAS STOPPED
+        // ------------------------------------------------------------
+
+        engineAudio.volume = Mathf.MoveTowards(
+            engineAudio.volume,
+            0f,
+            engineFadeSpeed * Time.deltaTime
+        );
+
+        // Stop the AudioSource only AFTER it has
+        // faded completely to zero.
+        if (engineAudio.volume <= 0.001f)
+        {
+            engineAudio.volume = 0f;
+            engineAudio.Stop();
+        }
     }
 
     // ============================================================

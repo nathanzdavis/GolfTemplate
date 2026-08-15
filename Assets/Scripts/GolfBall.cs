@@ -10,6 +10,10 @@ public class GolfBall : MonoBehaviour
 
     private Rigidbody rb;
 
+    [Header("Trail")]
+    [SerializeField] private TrailRenderer trailRenderer;
+    [SerializeField] private float trailStartSpeed = 0.08f;
+
     // ============================================================
     // ROLLING PHYSICS
     // ============================================================
@@ -57,6 +61,9 @@ public class GolfBall : MonoBehaviour
             CollisionDetectionMode.ContinuousDynamic;
 
         rb.angularDamping = angularDrag;
+
+        if (trailRenderer != null)
+            trailRenderer.emitting = false;
     }
 
     private void FixedUpdate()
@@ -64,12 +71,15 @@ public class GolfBall : MonoBehaviour
         if (!grounded)
         {
             stoppedTime = 0f;
+            UpdateTrail();
             return;
         }
 
         ApplyRollingResistance();
         ApplySlopeStopping();
         StopTinyMovement();
+
+        UpdateTrail();
     }
 
     // ============================================================
@@ -182,6 +192,9 @@ public class GolfBall : MonoBehaviour
 
     private void StopTinyMovement()
     {
+        if (rb.isKinematic)
+            return;
+
         Vector3 groundVelocity =
             Vector3.ProjectOnPlane(
                 rb.linearVelocity,
@@ -249,11 +262,14 @@ public class GolfBall : MonoBehaviour
         rb.angularVelocity = Vector3.zero;
 
         stoppedTime = 0f;
+
+        if (trailRenderer != null)
+            trailRenderer.emitting = false;
     }
 
     public void Launch(
-        Vector3 direction,
-        float force)
+    Vector3 direction,
+    float force)
     {
         stoppedTime = 0f;
 
@@ -261,5 +277,25 @@ public class GolfBall : MonoBehaviour
             direction.normalized * force,
             ForceMode.Impulse
         );
+
+        if (trailRenderer != null)
+            trailRenderer.emitting = true;
+    }
+
+    private void UpdateTrail()
+    {
+        if (trailRenderer == null)
+            return;
+
+        Vector3 groundVelocity =
+            Vector3.ProjectOnPlane(
+                rb.linearVelocity,
+                groundNormal
+            );
+
+        bool moving =
+            groundVelocity.magnitude > trailStartSpeed;
+
+        trailRenderer.emitting = moving;
     }
 }

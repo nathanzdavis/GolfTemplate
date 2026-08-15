@@ -18,6 +18,10 @@ public class GolfShotUI : MonoBehaviour
     [SerializeField] private float minimumVisualAngle = 90f;
     [SerializeField] private float maximumVisualAngle = 160f;
 
+    [Header("Actual Angle")]
+    [SerializeField] private float minimumActualAngle = 0f;
+    [SerializeField] private float maximumActualAngle = 60f;
+
     private Coroutine fadeCoroutine;
 
     private void Awake()
@@ -29,7 +33,7 @@ public class GolfShotUI : MonoBehaviour
             canvasGroup.alpha = 0f;
 
         SetCharge(0f);
-        SetAngle(0f);
+        SetAngle(minimumActualAngle);
     }
 
     public void SetPreparing(bool preparing)
@@ -52,11 +56,17 @@ public class GolfShotUI : MonoBehaviour
 
     public void SetAngle(float actualAngle)
     {
+        actualAngle = Mathf.Clamp(
+            actualAngle,
+            minimumActualAngle,
+            maximumActualAngle
+        );
+
         if (angleArmPivot != null)
         {
             float normalizedAngle = Mathf.InverseLerp(
-                20f,
-                60f,
+                minimumActualAngle,
+                maximumActualAngle,
                 actualAngle
             );
 
@@ -76,12 +86,15 @@ public class GolfShotUI : MonoBehaviour
         }
 
         if (angleText != null)
+        {
             angleText.text =
                 $"{Mathf.RoundToInt(actualAngle)}°";
+        }
 
-        // Tell the arc the actual shot angle.
         if (angleArc != null)
+        {
             angleArc.SetAngle(actualAngle);
+        }
     }
 
     private void UpdateAngleText(float normalizedAngle)
@@ -90,12 +103,13 @@ public class GolfShotUI : MonoBehaviour
             return;
 
         float actualAngle = Mathf.Lerp(
-            20f,
-            60f,
+            minimumActualAngle,
+            maximumActualAngle,
             normalizedAngle
         );
 
-        angleText.text = $"{Mathf.RoundToInt(actualAngle)}°";
+        angleText.text =
+            $"{Mathf.RoundToInt(actualAngle)}°";
     }
 
     private IEnumerator FadeCanvas(float targetAlpha)

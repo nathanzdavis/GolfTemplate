@@ -56,9 +56,9 @@ public class GolfHole : MonoBehaviour
     {
         ballSinking = true;
 
-        rb.isKinematic = true;
         rb.linearVelocity = Vector3.zero;
         rb.angularVelocity = Vector3.zero;
+        rb.isKinematic = true;
 
         Vector3 startPosition = ball.position;
 

@@ -62,6 +62,17 @@ public class GolfController : MonoBehaviour
     [Header("Shot Angle Input")]
     [SerializeField] private float angleScrollStep = 2.5f;
 
+    [Header("Shot Aim Guide")]
+    [SerializeField] private LineRenderer shotAimLine;
+    [SerializeField] private float shotAimLineLength = 5f;
+    [SerializeField] private float shotAimLineHeightOffset = 0.05f;
+
+    [Header("Shot Aim Line Smoothing")]
+    [SerializeField] private float shotAimLineRotationSpeed = 10f;
+
+    private Vector3 smoothedShotAimDirection;
+    private bool shotAimLineInitialized;
+
     // ============================================================
     // AUDIO
     // ============================================================
@@ -74,6 +85,12 @@ public class GolfController : MonoBehaviour
     [SerializeField] private AudioClip chargeSound;
     [SerializeField] private float chargePitchMin = 0.8f;
     [SerializeField] private float chargePitchMax = 1.4f;
+
+    [Header("Charge Sound Fade")]
+    [SerializeField] private float chargeFadeInSpeed = 12f;
+    [SerializeField] private float chargeFadeOutSpeed = 12f;
+
+    private bool chargeFadingOut;
 
     [Header("Swing Sounds")]
     [SerializeField] private AudioClip lowChargeSwingSound;
@@ -234,6 +251,8 @@ public class GolfController : MonoBehaviour
             shootAction.action.started += ShootStarted;
             shootAction.action.canceled += ShootCanceled;
         }
+
+        golfClub.gameObject.SetActive(true);
     }
 
     private void OnDisable()
@@ -256,10 +275,14 @@ public class GolfController : MonoBehaviour
                 shootAction.action.Disable();
             }
         }
+
+        golfClub.gameObject.SetActive(false);
     }
 
     private void Update()
     {
+        UpdateChargeSoundFade();
+
         UpdateGolfClub();
 
         if (reattachingNormalCameraTarget)
@@ -308,6 +331,81 @@ public class GolfController : MonoBehaviour
 
         // Secretly move the normal camera toward the golf camera.
         PrepositionNormalCamera();
+
+        // Update aim guide
+        UpdateShotAimLine();
+    }
+
+    private void UpdateShotAimLine()
+    {
+        if (shotAimLine == null)
+            return;
+
+        if (!preparingShot || golfBall == null)
+        {
+            shotAimLine.enabled = false;
+            shotAimLineInitialized = false;
+            return;
+        }
+
+        shotAimLine.enabled = true;
+
+        Vector3 start =
+            golfBall.position +
+            Vector3.up * shotAimLineHeightOffset;
+
+        Camera mainCamera = Camera.main;
+
+        if (mainCamera == null)
+            return;
+
+        // Get horizontal camera direction.
+        Vector3 forward = mainCamera.transform.forward;
+        forward.y = 0f;
+
+        if (forward.sqrMagnitude < 0.001f)
+            return;
+
+        forward.Normalize();
+
+        float angleRadians =
+            shotAngle * Mathf.Deg2Rad;
+
+        Vector3 targetDirection =
+            forward * Mathf.Cos(angleRadians) +
+            Vector3.up * Mathf.Sin(angleRadians);
+
+        targetDirection.Normalize();
+
+        // Initialize immediately when the aim line first appears.
+        if (!shotAimLineInitialized)
+        {
+            smoothedShotAimDirection = targetDirection;
+            shotAimLineInitialized = true;
+        }
+
+        // Smooth the direction instead of snapping to the camera.
+        smoothedShotAimDirection =
+            Vector3.Slerp(
+                smoothedShotAimDirection,
+                targetDirection,
+                shotAimLineRotationSpeed * Time.deltaTime
+            );
+
+        Vector3 end =
+            start +
+            smoothedShotAimDirection * shotAimLineLength;
+
+        shotAimLine.SetPosition(0, start);
+        shotAimLine.SetPosition(1, end);
+    }
+
+    private void SetShotAimLineVisible(bool visible)
+    {
+        if (shotAimLine == null)
+            return;
+
+        shotAimLine.enabled = visible;
     }
 
     private void UpdateShotAngle()
@@ -372,6 +470,9 @@ public class GolfController : MonoBehaviour
         StopChargeSound();
 
         preparingShot = false;
+
+        SetShotAimLineVisible(false);
+
         Invoke(nameof(SetLockMovementFalse), .2f);
 
         // Clear golf preparation state.
@@ -743,6 +844,8 @@ public class GolfController : MonoBehaviour
         // We can prepare a shot even if there is no ball nearby.
         preparingShot = true;
         lockMovement = true;
+
+        SetShotAimLineVisible(golfBall != null);
 
         SetPreparingAnimation(true);
 
@@ -1319,6 +1422,8 @@ public class GolfController : MonoBehaviour
 
     private void FinishSwing()
     {
+        SetShotAimLineVisible(false);
+
         swingFrame = 0f;
 
         swingPlaying = false;
@@ -1417,30 +1522,78 @@ public class GolfController : MonoBehaviour
             chargeSound == null)
             return;
 
-        if (chargeAudioSource.isPlaying)
+        chargeFadingOut = false;
+
+        if (!chargeAudioSource.isPlaying)
+        {
+            chargeAudioSource.clip = chargeSound;
+            chargeAudioSource.loop = true;
+            chargeAudioSource.pitch = chargePitchMin;
+
+            // Start silent so there is no click.
+            chargeAudioSource.volume = 0f;
+
+            float chargePercent = chargeAmount / 100f;
+
+            chargeAudioSource.pitch =
+                Mathf.Lerp(
+                    chargePitchMin,
+                    chargePitchMax,
+                    chargePercent
+                );
+
+            chargeAudioSource.Play();
+        }
+
+        // Fade in.
+        chargeAudioSource.volume =
+            Mathf.MoveTowards(
+                chargeAudioSource.volume,
+                1f,
+                chargeFadeInSpeed * Time.deltaTime
+            );
+    }
+
+    private void UpdateChargeSoundFade()
+    {
+        if (chargeAudioSource == null)
             return;
 
-        chargeAudioSource.clip = chargeSound;
-        chargeAudioSource.loop = true;
-        chargeAudioSource.volume = 1f;
+        if (!chargeAudioSource.isPlaying)
+            return;
 
-        // Start at the current charge pitch.
-        float chargePercent = chargeAmount / 100f;
+        float targetVolume = chargeFadingOut ? 0f : 1f;
 
-        chargeAudioSource.pitch =
-            Mathf.Lerp(
-                chargePitchMin,
-                chargePitchMax,
-                chargePercent
+        float fadeSpeed =
+            chargeFadingOut
+                ? chargeFadeOutSpeed
+                : chargeFadeInSpeed;
+
+        chargeAudioSource.volume =
+            Mathf.MoveTowards(
+                chargeAudioSource.volume,
+                targetVolume,
+                fadeSpeed * Time.deltaTime
             );
 
-        chargeAudioSource.Play();
+        // Once completely faded out, actually stop it.
+        if (chargeFadingOut &&
+            chargeAudioSource.volume <= 0.001f)
+        {
+            chargeAudioSource.Stop();
+
+            chargeAudioSource.volume = 0f;
+            chargeAudioSource.pitch = chargePitchMin;
+
+            chargeFadingOut = false;
+        }
     }
 
     private void UpdateChargeSound()
     {
         if (chargeAudioSource == null ||
-            !chargeAudioSource.isPlaying)
+            !chargeAudioSource.isPlaying ||
+            chargeFadingOut)
             return;
 
         float chargePercent =
@@ -1453,7 +1606,6 @@ public class GolfController : MonoBehaviour
                 chargePercent
             );
 
-        // Smooth the pitch instead of changing it abruptly every frame.
         chargeAudioSource.pitch =
             Mathf.Lerp(
                 chargeAudioSource.pitch,
@@ -1467,10 +1619,15 @@ public class GolfController : MonoBehaviour
         if (chargeAudioSource == null)
             return;
 
-        if (chargeAudioSource.isPlaying)
-            chargeAudioSource.Stop();
+        if (!chargeAudioSource.isPlaying)
+        {
+            chargeAudioSource.volume = 0f;
+            chargeAudioSource.pitch = chargePitchMin;
+            chargeFadingOut = false;
+            return;
+        }
 
-        chargeAudioSource.pitch = chargePitchMin;
+        chargeFadingOut = true;
     }
 
     private AudioClip GetChargeSound(AudioClip low,
