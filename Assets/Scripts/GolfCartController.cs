@@ -17,6 +17,9 @@ public class GolfCartController : MonoBehaviour
     [SerializeField] private Animator playerAnimator;
     [SerializeField] private Transform playerTransform;
 
+    [Header("Animation")]
+    [SerializeField] private string inCartParameter = "InCart";
+
     [Header("Vehicle Player Collision")]
     [SerializeField] private Collider[] cartColliders;
     private Collider[] playerColliders;
@@ -28,7 +31,8 @@ public class GolfCartController : MonoBehaviour
 
     [Header("Cart Camera")]
     [SerializeField] private CinemachineVirtualCamera normalCamera;
-    [SerializeField] private Transform normalCameraTarget;
+    [SerializeField] private CinemachineVirtualCamera golfCartCamera;
+
     [SerializeField] private Transform cartCameraTarget;
 
     [SerializeField] private float bottomClamp = -30f;
@@ -50,6 +54,7 @@ public class GolfCartController : MonoBehaviour
     [SerializeField] private InputActionReference moveAction;
     [SerializeField] private InputActionReference lookAction;
     [SerializeField] private InputActionReference interactAction;
+    [SerializeField] private InputActionReference shootAction;
 
     [Header("Wheels")]
     [SerializeField] private WheelCollider frontLeftWheel;
@@ -111,6 +116,9 @@ public class GolfCartController : MonoBehaviour
     [SerializeField] private float maxVolume = 0.8f;
     [SerializeField] private float audioSmoothSpeed = 5f;
 
+    [Header("Horn")]
+    [SerializeField] private AudioSource hornAudio;
+
     // ============================================================
     // DUST
     // ============================================================
@@ -118,6 +126,13 @@ public class GolfCartController : MonoBehaviour
     [Header("Wheel Dust")]
     [SerializeField] private float dustMinimumSpeed = 2f;
     [SerializeField] private float dustSlipThreshold = 0.25f;
+
+    // ============================================================
+    // LIGHTS
+    // ============================================================
+
+    [Header("Cart Lights")]
+    [SerializeField] private Light[] brakeLights;
 
     // ============================================================
     // STATE
@@ -135,15 +150,10 @@ public class GolfCartController : MonoBehaviour
     private float cameraYaw;
     private float cameraPitch;
 
-    private Transform previousCameraFollow;
 
     private Transform previousPlayerParent;
     private Vector3 previousPlayerPosition;
     private Quaternion previousPlayerRotation;
-
-    private Transform originalCameraTargetParent;
-    private Vector3 originalCameraTargetLocalPosition;
-    private Quaternion originalCameraTargetLocalRotation;
 
 
     // ============================================================
@@ -171,13 +181,6 @@ public class GolfCartController : MonoBehaviour
                 centerOfMassHeight,
                 rb.centerOfMass.z
             );
-        }
-
-        if (normalCameraTarget != null)
-        {
-            originalCameraTargetParent = normalCameraTarget.parent;
-            originalCameraTargetLocalPosition = normalCameraTarget.localPosition;
-            originalCameraTargetLocalRotation = normalCameraTarget.localRotation;
         }
 
         if (engineAudio != null)
@@ -232,12 +235,21 @@ public class GolfCartController : MonoBehaviour
             interactAction.action.Enable();
             interactAction.action.started += OnInteract;
         }
+
+        if (shootAction != null)
+        {
+            shootAction.action.Enable();
+            shootAction.action.started += OnShoot;
+        }
     }
 
     private void OnDisable()
     {
         if (interactAction != null)
             interactAction.action.started -= OnInteract;
+
+        if (shootAction != null)
+            shootAction.action.started -= OnShoot;
 
         if (moveAction != null)
             moveAction.action.Disable();
@@ -247,6 +259,9 @@ public class GolfCartController : MonoBehaviour
 
         if (interactAction != null)
             interactAction.action.Disable();
+
+        if (shootAction != null)
+            shootAction.action.Disable();
     }
 
     private void Update()
@@ -342,7 +357,6 @@ public class GolfCartController : MonoBehaviour
 
     private void OnInteract(InputAction.CallbackContext context)
     {
-        print("interact pressed");
         if (!context.started)
             return;
 
@@ -358,6 +372,25 @@ public class GolfCartController : MonoBehaviour
         }
     }
 
+    private void OnShoot(InputAction.CallbackContext context)
+    {
+        if (!context.started)
+            return;
+
+        if (!driving)
+            return;
+
+        PlayHorn();
+    }
+
+    private void PlayHorn()
+    {
+        if (hornAudio == null || hornAudio.clip == null)
+            return;
+
+        hornAudio.PlayOneShot(hornAudio.clip);
+    }
+
     // ============================================================
     // ENTER / EXIT
     // ============================================================
@@ -366,6 +399,9 @@ public class GolfCartController : MonoBehaviour
     {
         if (playerTransform == null || seatPoint == null)
             return;
+
+        if (playerAnimator != null)
+            playerAnimator.SetBool(inCartParameter, true);
 
         // ------------------------------------------------------------
         // SAVE PLAYER STATE
@@ -386,11 +422,14 @@ public class GolfCartController : MonoBehaviour
             characterController.enabled = false;
 
         if (golfController != null)
+        {
+            golfController.driving = true;
             golfController.enabled = false;
-
-
+        }
 
         SetPlayerCollidersEnabled(false);
+
+        SetBrakeLights(false);
 
         // ------------------------------------------------------------
         // REMOVE PLAYER FROM ANY PHYSICS HIERARCHY
@@ -422,10 +461,10 @@ public class GolfCartController : MonoBehaviour
         // ------------------------------------------------------------
 
         if (normalCamera != null)
-        {
-            previousCameraFollow = normalCamera.Follow;
-            normalCamera.Follow = cartCameraTarget;
-        }
+            normalCamera.Priority = 0;
+
+        if (golfCartCamera != null)
+            golfCartCamera.Priority = 1;
 
         // ------------------------------------------------------------
         // ENGINE
@@ -460,9 +499,15 @@ public class GolfCartController : MonoBehaviour
         if (!driving)
             return;
 
+        if (playerAnimator != null)
+            playerAnimator.SetBool(inCartParameter, false);
+
         driving = false;
 
         StopCart();
+
+        StopAllDust();
+        SetBrakeLights(false);
 
         if (engineAudio != null)
             engineAudio.Stop();
@@ -498,14 +543,21 @@ public class GolfCartController : MonoBehaviour
             thirdPersonController.enabled = true;
 
         if (golfController != null)
+        {
+            golfController.driving = false;
             golfController.enabled = true;
+        }
+
 
         // ------------------------------------------------------------
         // CAMERA
         // ------------------------------------------------------------
 
+        if (golfCartCamera != null)
+            golfCartCamera.Priority = 0;
+
         if (normalCamera != null)
-            normalCamera.Follow = previousCameraFollow;
+            normalCamera.Priority = 1;
 
         moveInput = Vector2.zero;
         lookInput = Vector2.zero;
@@ -581,19 +633,30 @@ public class GolfCartController : MonoBehaviour
         // BRAKING
         // --------------------------------------------------------
 
+        bool isBraking = false;
+
         if (Mathf.Abs(throttle) < throttleDeadZone)
         {
+            // Vehicle is coasting.
             ApplyBrakeTorque(rollingBrakeTorque);
+
+            // Only show brake lights if the cart is actually moving.
+            isBraking = Mathf.Abs(forwardSpeed) > 0.25f;
         }
         else if (Mathf.Abs(forwardSpeed) > 0.25f &&
                  Mathf.Sign(throttle) != Mathf.Sign(forwardSpeed))
         {
+            // Player is pressing the opposite direction.
             ApplyBrakeTorque(brakeTorque);
+
+            isBraking = true;
         }
         else
         {
             ApplyBrakeTorque(0f);
         }
+
+        SetBrakeLights(isBraking);
 
         // --------------------------------------------------------
         // STEERING
@@ -861,6 +924,18 @@ public class GolfCartController : MonoBehaviour
             dust.Stop();
     }
 
+    private void SetBrakeLights(bool enabled)
+    {
+        if (brakeLights == null)
+            return;
+
+        foreach (Light brakeLight in brakeLights)
+        {
+            if (brakeLight != null)
+                brakeLight.enabled = enabled;
+        }
+    }
+
     // ============================================================
     // PLAYER DETECTION
     // ============================================================
@@ -898,5 +973,13 @@ public class GolfCartController : MonoBehaviour
     public bool IsPlayerNearby()
     {
         return playerNearby;
+    }
+
+    private void StopAllDust()
+    {
+        StopDust(frontLeftDust);
+        StopDust(frontRightDust);
+        StopDust(rearLeftDust);
+        StopDust(rearRightDust);
     }
 }

@@ -152,6 +152,7 @@ public class GolfController : MonoBehaviour
     [HideInInspector]
     public bool preparingShot;
     public bool lockMovement;
+    public bool driving;
 
     private StarterAssets.StarterAssetsInputs starterInputs;
 
@@ -250,7 +251,10 @@ public class GolfController : MonoBehaviour
             shootAction.action.started -= ShootStarted;
             shootAction.action.canceled -= ShootCanceled;
 
-            shootAction.action.Disable();
+            if (!driving)
+            {
+                shootAction.action.Disable();
+            }
         }
     }
 

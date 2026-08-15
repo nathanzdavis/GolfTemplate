@@ -28,6 +28,8 @@ namespace StarterAssets
         [Tooltip("Acceleration and deceleration")]
         public float SpeedChangeRate = 10.0f;
 
+        private Vector3 _knockbackVelocity;
+
         public AudioSource AudioFootsteps;
         public AudioSource LandingAudio;
         public AudioSource AudioFoley;
@@ -294,9 +296,19 @@ namespace StarterAssets
 
             if (_controller.enabled)
             {
-                // move the player
-                _controller.Move(targetDirection.normalized * (_speed * Time.deltaTime) +
-                                 new Vector3(0.0f, _verticalVelocity, 0.0f) * Time.deltaTime);
+                Vector3 movement =
+                    targetDirection.normalized * (_speed * Time.deltaTime) +
+                    new Vector3(0.0f, _verticalVelocity, 0.0f) * Time.deltaTime;
+
+                movement += _knockbackVelocity * Time.deltaTime;
+
+                _controller.Move(movement);
+
+                _knockbackVelocity = Vector3.Lerp(
+                    _knockbackVelocity,
+                    Vector3.zero,
+                    Time.deltaTime * 5f
+                );
             }
 
             // update animator if using character
@@ -374,6 +386,11 @@ namespace StarterAssets
             {
                 _verticalVelocity += Gravity * Time.deltaTime;
             }
+        }
+
+        public void ApplyKnockback(Vector3 force)
+        {
+            _knockbackVelocity += force;
         }
 
         private static float ClampAngle(float lfAngle, float lfMin, float lfMax)
