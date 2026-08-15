@@ -116,7 +116,7 @@ namespace StarterAssets
 
         private bool _hasAnimator;
 
-        private bool IsCurrentDeviceMouse
+        [HideInInspector] public bool IsCurrentDeviceMouse
         {
             get
             {
