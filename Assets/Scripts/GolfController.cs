@@ -213,6 +213,18 @@ public class GolfController : MonoBehaviour
     [SerializeField] private float minimumShakeForce = 0.1f;
     [SerializeField] private float maximumShakeForce = 1.0f;
 
+    [Header("Golf Camera Vertical Orbit")]
+    [SerializeField] private Transform golfCameraOrbitCenter;
+    [SerializeField] private float golfCameraLookSpeed = 1f;
+    [SerializeField] private float golfCameraTopClamp = 60f;
+    [SerializeField] private float golfCameraBottomClamp = -30f;
+    [SerializeField] private float golfCameraInitialPitch = 20f;
+    [SerializeField] private float golfCameraDistance = 5f;
+    [SerializeField] private float golfCameraHeight = 2f;
+    [SerializeField] private float golfCameraLookAtOffset = 0.5f;
+
+    private float golfCameraPitch;
+
     // ============================================================
     // UNITY LIFECYCLE
     // ============================================================
@@ -837,6 +849,7 @@ public class GolfController : MonoBehaviour
     {
         thirdPersonController.SetCameraTargetLocked(true);
         DetachNormalCameraTarget();
+        InitializeGolfCameraPitch();
 
         // Try to find a nearby golf ball.
         FindGolfBall();
@@ -1110,11 +1123,115 @@ public class GolfController : MonoBehaviour
 
         Vector2 look = starterInputs.look;
 
-        // Horizontal camera movement is still allowed.
-        // Vertical camera movement is locked.
+        // Horizontal look is still passed through normally.
+        // Vertical look controls the golf camera directly.
+        UpdateGolfCameraVerticalLook(-look.y);
+
+        // Prevent the normal Starter Assets camera from
+        // also processing the vertical input.
         look.y = 0f;
 
         starterInputs.LookInput(look);
+    }
+
+    private void InitializeGolfCameraPitch()
+    {
+        golfCameraPitch = Mathf.Clamp(
+            golfCameraInitialPitch,
+            golfCameraBottomClamp,
+            golfCameraTopClamp
+        );
+    }
+
+    private void UpdateGolfCameraVerticalLook(float verticalInput)
+    {
+        if (golfCameraTransform == null ||
+            golfCameraOrbitCenter == null)
+            return;
+
+        // ------------------------------------------------------------
+        // Change vertical orbit angle.
+        // ------------------------------------------------------------
+
+        if (Mathf.Abs(verticalInput) > 0.001f)
+        {
+            golfCameraPitch -=
+                verticalInput *
+                golfCameraLookSpeed;
+
+            golfCameraPitch = Mathf.Clamp(
+                golfCameraPitch,
+                golfCameraBottomClamp,
+                golfCameraTopClamp
+            );
+        }
+
+        // ------------------------------------------------------------
+        // Preserve the existing horizontal direction.
+        // ------------------------------------------------------------
+
+        Vector3 horizontalDirection =
+            golfCameraTransform.position -
+            golfCameraOrbitCenter.position;
+
+        horizontalDirection.y = 0f;
+
+        if (horizontalDirection.sqrMagnitude < 0.001f)
+        {
+            horizontalDirection =
+                -golfCameraTransform.forward;
+
+            horizontalDirection.y = 0f;
+
+            if (horizontalDirection.sqrMagnitude < 0.001f)
+                return;
+        }
+
+        horizontalDirection.Normalize();
+
+        // ------------------------------------------------------------
+        // Calculate vertical orbit.
+        // ------------------------------------------------------------
+
+        float pitchRadians =
+            golfCameraPitch * Mathf.Deg2Rad;
+
+        float horizontalDistance =
+            golfCameraDistance *
+            Mathf.Cos(pitchRadians);
+
+        float verticalDistance =
+            golfCameraDistance *
+            Mathf.Sin(pitchRadians);
+
+        Vector3 newPosition =
+            golfCameraOrbitCenter.position +
+            horizontalDirection * horizontalDistance;
+
+        newPosition.y +=
+            golfCameraHeight +
+            verticalDistance;
+
+        golfCameraTransform.position =
+            newPosition;
+
+        // ------------------------------------------------------------
+        // Look at the invisible orbit center.
+        // ------------------------------------------------------------
+
+        Vector3 lookAtPosition =
+            golfCameraOrbitCenter.position +
+            Vector3.up * golfCameraLookAtOffset;
+
+        Vector3 lookDirection =
+            lookAtPosition -
+            golfCameraTransform.position;
+
+        if (lookDirection.sqrMagnitude > 0.001f)
+        {
+            golfCameraTransform.rotation =
+                Quaternion.LookRotation(lookDirection);
+        }
     }
 
     private void SetCharacterControllerEnabled(bool enabled)

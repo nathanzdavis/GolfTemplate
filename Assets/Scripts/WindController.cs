@@ -8,8 +8,28 @@ public class WindGenerator : MonoBehaviour
     [Header("Wind")]
     [SerializeField] private float windSpeed = 10f;
 
-    [Tooltip("Direction the wind PARTICLES travel.")]
+    [Tooltip("Initial direction the wind PARTICLES travel.")]
     [SerializeField] private Vector3 windDirection = Vector3.forward;
+
+    [Header("Wind Direction Change")]
+    [Tooltip("How often the wind chooses a new direction.")]
+    [SerializeField] private float directionChangeInterval = 5f;
+
+    [Tooltip("How quickly the wind rotates toward the new direction.")]
+    [SerializeField] private float directionChangeSpeed = 1f;
+
+    [Tooltip("Maximum angle the wind can change from its current direction.")]
+    [SerializeField] private float maxDirectionChangeAngle = 45f;
+
+    [Header("Wind Speed Change")]
+    [Tooltip("Minimum possible wind speed.")]
+    [SerializeField] private float minimumWindSpeed = 5f;
+
+    [Tooltip("Maximum possible wind speed.")]
+    [SerializeField] private float maximumWindSpeed = 15f;
+
+    [Tooltip("How quickly the wind speed changes.")]
+    [SerializeField] private float windSpeedChangeSpeed = 1f;
 
     [Header("Spawn Area")]
     [SerializeField] private float forwardDistance = 50f;
@@ -24,26 +44,47 @@ public class WindGenerator : MonoBehaviour
 
     private float spawnTimer;
 
-    public Vector3 WindDirection
+    private Vector3 currentWindDirection;
+    private Vector3 targetWindDirection;
+
+    private float currentWindSpeed;
+    private float targetWindSpeed;
+
+    private float directionChangeTimer;
+
+    public Vector3 WindDirection => currentWindDirection;
+
+    public float WindSpeed => currentWindSpeed;
+
+    private void Start()
     {
-        get
-        {
-            Vector3 direction = windDirection;
-            direction.y = 0f;
+        // Start with a random horizontal wind direction.
+        float randomAngle = Random.Range(0f, 360f);
 
-            if (direction.sqrMagnitude < 0.001f)
-                return Vector3.forward;
+        currentWindDirection =
+            Quaternion.Euler(0f, randomAngle, 0f) *
+            Vector3.forward;
 
-            return direction.normalized;
-        }
+        currentWindDirection.y = 0f;
+        currentWindDirection.Normalize();
+
+        targetWindDirection = currentWindDirection;
+
+        // Start with a random wind speed.
+        currentWindSpeed = Random.Range(
+            minimumWindSpeed,
+            maximumWindSpeed
+        );
+
+        targetWindSpeed = currentWindSpeed;
     }
-
-    public float WindSpeed => windSpeed;
 
     private void Update()
     {
         if (player == null || windParticlePrefab == null)
             return;
+
+        UpdateWind();
 
         spawnTimer += Time.deltaTime;
 
@@ -58,6 +99,77 @@ public class WindGenerator : MonoBehaviour
         }
     }
 
+    private void UpdateWind()
+    {
+        directionChangeTimer += Time.deltaTime;
+
+        // Pick a new wind direction and speed.
+        if (directionChangeTimer >= directionChangeInterval)
+        {
+            directionChangeTimer = 0f;
+
+            // -----------------------------
+            // RANDOM DIRECTION
+            // -----------------------------
+
+            float randomAngle = Random.Range(
+                -maxDirectionChangeAngle,
+                maxDirectionChangeAngle
+            );
+
+            targetWindDirection =
+                Quaternion.Euler(0f, randomAngle, 0f) *
+                currentWindDirection;
+
+            targetWindDirection.y = 0f;
+
+            if (targetWindDirection.sqrMagnitude < 0.001f)
+            {
+                targetWindDirection = Vector3.forward;
+            }
+
+            targetWindDirection.Normalize();
+
+            // -----------------------------
+            // RANDOM SPEED
+            // -----------------------------
+
+            targetWindSpeed = Random.Range(
+                minimumWindSpeed,
+                maximumWindSpeed
+            );
+        }
+
+        // -----------------------------
+        // SMOOTH DIRECTION
+        // -----------------------------
+
+        currentWindDirection = Vector3.Slerp(
+            currentWindDirection,
+            targetWindDirection,
+            directionChangeSpeed * Time.deltaTime
+        );
+
+        currentWindDirection.y = 0f;
+
+        if (currentWindDirection.sqrMagnitude < 0.001f)
+        {
+            currentWindDirection = Vector3.forward;
+        }
+
+        currentWindDirection.Normalize();
+
+        // -----------------------------
+        // SMOOTH SPEED
+        // -----------------------------
+
+        currentWindSpeed = Mathf.Lerp(
+            currentWindSpeed,
+            targetWindSpeed,
+            windSpeedChangeSpeed * Time.deltaTime
+        );
+    }
+
     private void SpawnWindParticle()
     {
         Vector3 forward = player.forward;
@@ -70,38 +182,42 @@ public class WindGenerator : MonoBehaviour
 
         Vector3 right = player.right;
         right.y = 0f;
+
+        if (right.sqrMagnitude < 0.001f)
+            return;
+
         right.Normalize();
 
-        // Start 50 units in front and 25 units above the player.
+        // Start forwardDistance units in front
+        // and height units above the player.
         Vector3 spawnPosition =
             player.position +
             forward * forwardDistance +
             Vector3.up * height;
 
-        // Randomly spawn anywhere between 25 units left
-        // and 25 units right.
-        float sideOffset =
-            Random.Range(
-                -horizontalSpawnOffset,
-                horizontalSpawnOffset
-            );
+        // Randomly spawn between
+        // -horizontalSpawnOffset and +horizontalSpawnOffset.
+        float sideOffset = Random.Range(
+            -horizontalSpawnOffset,
+            horizontalSpawnOffset
+        );
 
         spawnPosition += right * sideOffset;
 
-        // Z axis faces the direction the wind is traveling.
+        // Rotate the particle so its forward/Z axis
+        // faces the direction the wind is traveling.
         Quaternion rotation =
             Quaternion.LookRotation(
                 WindDirection,
                 Vector3.up
             );
 
-        GameObject particle =
-            Instantiate(
-                windParticlePrefab,
-                spawnPosition,
-                rotation,
-                transform
-            );
+        GameObject particle = Instantiate(
+            windParticlePrefab,
+            spawnPosition,
+            rotation,
+            transform
+        );
 
         Destroy(
             particle,

@@ -33309,9 +33309,15 @@ MonoBehaviour:
   player: {fileID: 8002068141602223151}
   windSpeed: 10
   windDirection: {x: 0, y: 0, z: 1}
-  forwardDistance: 25
-  height: 12
-  horizontalSpawnOffset: 12
+  directionChangeInterval: 15
+  directionChangeSpeed: 1
+  maxDirectionChangeAngle: 45
+  minimumWindSpeed: 5
+  maximumWindSpeed: 15
+  windSpeedChangeSpeed: 1
+  forwardDistance: 30
+  height: 10
+  horizontalSpawnOffset: 3
   windParticlePrefab: {fileID: 5797557893956583710, guid: 626c2641584ed6042ab7556f1830e6de, type: 3}
   spawnInterval: 0.25
   particleLifetime: 5
@@ -33473,6 +33479,37 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2002262680}
   m_CullTransparentMesh: 1
+--- !u!1 &2121253630
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2121253631}
+  m_Layer: 8
+  m_Name: GolfCameraOrbit
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &2121253631
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2121253630}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 1}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 8002068141602223151}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &2140691411
 GameObject:
   m_ObjectHideFlags: 0
@@ -33975,7 +34012,7 @@ AudioSource:
   m_audioClip: {fileID: 0}
   m_Resource: {fileID: 8300000, guid: 8a3dc8473b347da45a03d36393772a3c, type: 3}
   m_PlayOnAwake: 0
-  m_Volume: 0.506
+  m_Volume: 0.367
   m_Pitch: 1
   Loop: 1
   Mute: 0
@@ -34126,8 +34163,8 @@ MonoBehaviour:
   antiRollForce: 5000
   idlePitch: 0.8
   maxPitch: 1.6
-  idleVolume: 0.35
-  maxVolume: 0.8
+  idleVolume: 0.3
+  maxVolume: 0.5
   audioSmoothSpeed: 5
   engineFadeSpeed: 3
   engineStopSpeed: 0.1
@@ -38297,6 +38334,7 @@ Transform:
   - {fileID: 6467654011251142163}
   - {fileID: 1133537696}
   - {fileID: 1460710475}
+  - {fileID: 2121253631}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &8002068141602223152
@@ -38384,6 +38422,14 @@ MonoBehaviour:
   cameraShakeSource: {fileID: 8002068141602223155}
   minimumShakeForce: 0.05
   maximumShakeForce: 1
+  golfCameraOrbitCenter: {fileID: 2121253631}
+  golfCameraLookSpeed: 1
+  golfCameraTopClamp: 60
+  golfCameraBottomClamp: -30
+  golfCameraInitialPitch: -15
+  golfCameraDistance: 5
+  golfCameraHeight: 2
+  golfCameraLookAtOffset: 1
 --- !u!82 &8002068141602223153
 AudioSource:
   m_ObjectHideFlags: 0
