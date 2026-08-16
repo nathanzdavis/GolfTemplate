@@ -46,9 +46,10 @@ public class GolfBall : MonoBehaviour
 
     private Vector3 groundNormal = Vector3.up;
 
-    // ============================================================
-    // UNITY
-    // ============================================================
+    [Header("Wind")]
+    [SerializeField] private WindGenerator windGenerator;
+    [SerializeField] private float windInfluence = 1f;
+    [SerializeField] private float maximumWindAcceleration = 10f;
 
     private void Awake()
     {
@@ -71,6 +72,9 @@ public class GolfBall : MonoBehaviour
         if (!grounded)
         {
             stoppedTime = 0f;
+
+            ApplyWind();
+
             UpdateTrail();
             return;
         }
@@ -80,6 +84,40 @@ public class GolfBall : MonoBehaviour
         StopTinyMovement();
 
         UpdateTrail();
+    }
+
+    private void ApplyWind()
+    {
+        if (windGenerator == null)
+            return;
+
+        Vector3 windDirection =
+            windGenerator.WindDirection;
+
+        float windSpeed =
+            windGenerator.WindSpeed;
+
+        if (windDirection.sqrMagnitude < 0.001f)
+            return;
+
+        // Wind force increases with wind speed.
+        // Squaring the speed gives a more natural aerodynamic response.
+        float windAcceleration =
+            windSpeed * windSpeed * 0.01f;
+
+        windAcceleration *= windInfluence;
+
+        windAcceleration =
+            Mathf.Min(
+                windAcceleration,
+                maximumWindAcceleration
+            );
+
+        rb.AddForce(
+            windDirection.normalized *
+            windAcceleration,
+            ForceMode.Acceleration
+        );
     }
 
     // ============================================================

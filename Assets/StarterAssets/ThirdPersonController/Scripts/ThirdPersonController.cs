@@ -112,7 +112,7 @@ namespace StarterAssets
         private Animator _animator;
         private CharacterController _controller;
         private StarterAssetsInputs _input;
-        private GameObject _mainCamera;
+        [HideInInspector] public GameObject _mainCamera;
 
         private const float _threshold = 0.01f;
 

@@ -1,3 +1,4 @@
+using StarterAssets;
 using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
@@ -10,6 +11,12 @@ public class GolfShotUI : MonoBehaviour
     [SerializeField] private RectTransform angleArmPivot;
     [SerializeField] private Text angleText;
     [SerializeField] private UIArc angleArc;
+
+    [Header("Wind")]
+    [SerializeField] private Image windDirection;
+    [SerializeField] private Text windSpeed;
+    [SerializeField] private WindGenerator windGenerator;
+    [SerializeField] private ThirdPersonController player;
 
     [Header("Fade")]
     [SerializeField] private float fadeDuration = 0.2f;
@@ -34,6 +41,11 @@ public class GolfShotUI : MonoBehaviour
 
         SetCharge(0f);
         SetAngle(minimumActualAngle);
+    }
+
+    private void Update()
+    {
+        UpdateWindUI(player._mainCamera.GetComponent<Camera>());
     }
 
     public void SetPreparing(bool preparing)
@@ -97,19 +109,99 @@ public class GolfShotUI : MonoBehaviour
         }
     }
 
-    private void UpdateAngleText(float normalizedAngle)
+    // ============================================================
+    // WIND
+    // ============================================================
+
+    public void UpdateWindUI(Camera camera)
     {
-        if (angleText == null)
+        if (windGenerator == null || camera == null)
             return;
 
-        float actualAngle = Mathf.Lerp(
-            minimumActualAngle,
-            maximumActualAngle,
-            normalizedAngle
-        );
+        Vector3 windWorldDirection =
+            windGenerator.WindDirection;
 
-        angleText.text =
-            $"{Mathf.RoundToInt(actualAngle)}°";
+        windWorldDirection.y = 0f;
+
+        if (windWorldDirection.sqrMagnitude < 0.001f)
+            return;
+
+        windWorldDirection.Normalize();
+
+        // Get the camera's horizontal forward/right vectors.
+        Vector3 cameraForward = camera.transform.forward;
+        cameraForward.y = 0f;
+
+        Vector3 cameraRight = camera.transform.right;
+        cameraRight.y = 0f;
+
+        if (cameraForward.sqrMagnitude < 0.001f ||
+            cameraRight.sqrMagnitude < 0.001f)
+            return;
+
+        cameraForward.Normalize();
+        cameraRight.Normalize();
+
+        // Convert world wind direction into camera-relative coordinates.
+        float horizontal =
+            Vector3.Dot(
+                windWorldDirection,
+                cameraRight
+            );
+
+        float vertical =
+            Vector3.Dot(
+                windWorldDirection,
+                cameraForward
+            );
+
+        Vector2 direction2D =
+            new Vector2(
+                horizontal,
+                vertical
+            );
+
+        if (direction2D.sqrMagnitude < 0.001f)
+            return;
+
+        direction2D.Normalize();
+
+        // ------------------------------------------------------------
+        // WIND SPEED
+        // ------------------------------------------------------------
+
+        if (windSpeed != null)
+        {
+            windSpeed.text =
+                $"{windGenerator.WindSpeed:0.0} m/s";
+        }
+
+        // ------------------------------------------------------------
+        // WIND DIRECTION
+        // ------------------------------------------------------------
+
+        if (windDirection != null)
+        {
+            RectTransform arrow =
+                windDirection.rectTransform;
+
+            // The V starts pointing DOWN.
+            Vector2 defaultDirection =
+                Vector2.down;
+
+            float angle =
+                Vector2.SignedAngle(
+                    defaultDirection,
+                    direction2D
+                );
+
+            arrow.localRotation =
+                Quaternion.Euler(
+                    0f,
+                    0f,
+                    angle
+                );
+        }
     }
 
     private IEnumerator FadeCanvas(float targetAlpha)
