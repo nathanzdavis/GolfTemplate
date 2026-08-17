@@ -180,8 +180,11 @@ public class GolfController : MonoBehaviour
     [SerializeField] private float cameraPrepositionDelay = 1f;
     [SerializeField] private float cameraActivationDelay = 0.5f;
     [SerializeField] private float cameraRotationTolerance = 1f;
+    private float normalCameraOriginalYaw;
+    private float normalCameraOriginalPitch;
     private Transform normalCameraTargetOriginalParent;
     private Vector3 normalCameraTargetOriginalLocalPosition;
+    private Quaternion normalCameraTargetOriginalLocalRotation;
     private bool normalCameraTargetDetached;
 
     private bool waitingForPrepareRotation;
@@ -238,10 +241,6 @@ public class GolfController : MonoBehaviour
             GetComponent<StarterAssets.StarterAssetsInputs>();
 
         CacheCameras();
-
-        // Save the target's original offset from the player.
-        normalCameraTargetOriginalLocalPosition =
-            normalCameraTarget.localPosition;
 
         normalCameraTargetOriginalParent = normalCameraTarget.parent;
     }
@@ -633,31 +632,53 @@ public class GolfController : MonoBehaviour
         if (normalCameraTarget == null)
             return;
 
-        // Detach while preserving its current world position/rotation.
-        normalCameraTarget.SetParent(null);
+        // Capture the target's CURRENT local transform.
+        normalCameraTargetOriginalParent =
+            normalCameraTarget.parent;
+
+        normalCameraTargetOriginalLocalPosition =
+            normalCameraTarget.localPosition;
+
+        // Capture rotation in LOCAL space.
+        normalCameraTargetOriginalLocalRotation =
+            normalCameraTarget.localRotation;
+
+        // Capture camera angles for Starter Assets.
+        Vector3 angles =
+            normalCameraTarget.rotation.eulerAngles;
+
+        normalCameraOriginalYaw =
+            NormalizeAngle(angles.y);
+
+        normalCameraOriginalPitch =
+            NormalizeAngle(angles.x);
+
+        // Detach while keeping its current world transform.
+        normalCameraTarget.SetParent(null, true);
 
         normalCameraTargetDetached = true;
     }
 
-    private void ReAttachNormalCameraTarget()
+    private float NormalizeAngle(float angle)
     {
-        if (normalCameraTarget == null)
-            return;
+        if (angle > 180f)
+            angle -= 360f;
 
-        // Detach while preserving its current world position/rotation.
-        normalCameraTarget.SetParent(normalCameraTargetOriginalParent);
-        normalCameraTarget.localPosition = normalCameraTargetOriginalLocalPosition;
-        normalCameraTargetDetached = false;
+        return angle;
     }
 
     private void StartCameraTargetReattach()
     {
-        if (normalCameraTarget == null || !normalCameraTargetDetached)
+        if (normalCameraTarget == null ||
+            !normalCameraTargetDetached)
             return;
 
-        // Reparent while preserving the camera target's current
-        // world position and rotation.
-        normalCameraTarget.SetParent(transform, true);
+        // Reparent to the player's CURRENT transform.
+        // Preserve the current world position temporarily.
+        normalCameraTarget.SetParent(
+            normalCameraTargetOriginalParent,
+            true
+        );
 
         reattachingNormalCameraTarget = true;
     }
@@ -671,8 +692,7 @@ public class GolfController : MonoBehaviour
             return;
         }
 
-        // Smoothly move from the current local position back
-        // to the original position it had before detaching.
+        // Move toward the ORIGINAL LOCAL OFFSET.
         normalCameraTarget.localPosition =
             Vector3.Lerp(
                 normalCameraTarget.localPosition,
@@ -680,23 +700,34 @@ public class GolfController : MonoBehaviour
                 cameraReattachSpeed * Time.deltaTime
             );
 
-        // Also smoothly restore the original local rotation if needed.
-        // This is optional, but prevents any rotation offset from
-        // remaining after the camera preparation.
+        // Rotate toward the ORIGINAL LOCAL ROTATION.
         normalCameraTarget.localRotation =
             Quaternion.Slerp(
                 normalCameraTarget.localRotation,
-                Quaternion.identity,
+                normalCameraTargetOriginalLocalRotation,
                 cameraReattachSpeed * Time.deltaTime
             );
 
-        // Finish once we're sufficiently close.
-        if (Vector3.Distance(
+        bool positionFinished =
+            Vector3.Distance(
                 normalCameraTarget.localPosition,
-                normalCameraTargetOriginalLocalPosition) < 0.001f)
+                normalCameraTargetOriginalLocalPosition
+            ) < 0.001f;
+
+        bool rotationFinished =
+            Quaternion.Angle(
+                normalCameraTarget.localRotation,
+                normalCameraTargetOriginalLocalRotation
+            ) < 0.1f;
+
+        if (positionFinished && rotationFinished)
         {
+            // Snap exactly to the saved LOCAL transform.
             normalCameraTarget.localPosition =
                 normalCameraTargetOriginalLocalPosition;
+
+            normalCameraTarget.localRotation =
+                normalCameraTargetOriginalLocalRotation;
 
             reattachingNormalCameraTarget = false;
             normalCameraTargetDetached = false;
@@ -715,13 +746,19 @@ public class GolfController : MonoBehaviour
 
     private void StopCameraPreposition()
     {
-        ReAttachNormalCameraTarget();
+        StartCameraTargetReattach();
 
         if (normalCamera == null)
             return;
 
         normalCamera.Follow = originalNormalFollow;
         normalCamera.LookAt = originalNormalLookAt;
+
+        // Restore Starter Assets camera state.
+        thirdPersonController.SetCameraAngles(
+            normalCameraOriginalYaw,
+            normalCameraOriginalPitch
+        );
     }
 
     private void PrepositionNormalCamera()
@@ -765,9 +802,12 @@ public class GolfController : MonoBehaviour
 
         Vector3 angles = normalCameraTarget.rotation.eulerAngles;
 
+        float yaw = NormalizeAngle(angles.y);
+        float pitch = NormalizeAngle(angles.x);
+
         thirdPersonController.SetCameraAngles(
-            angles.y,
-            angles.x
+            yaw,
+            pitch
         );
     }
 
@@ -835,6 +875,19 @@ public class GolfController : MonoBehaviour
 
     private void PrepareStarted(InputAction.CallbackContext context)
     {
+        // Find the ball first so we know which preparation mode we need.
+        FindGolfBall();
+
+        // No ball nearby:
+        // Always allow free preparation immediately.
+        if (golfBall == null)
+        {
+            prepareQueued = false;
+            StartPreparingShot();
+            return;
+        }
+
+        // Ball preparation requires the player to be grounded.
         if (characterController != null &&
             !characterController.isGrounded)
         {
@@ -842,6 +895,7 @@ public class GolfController : MonoBehaviour
             return;
         }
 
+        prepareQueued = false;
         StartPreparingShot();
     }
 
@@ -850,9 +904,6 @@ public class GolfController : MonoBehaviour
         thirdPersonController.SetCameraTargetLocked(true);
         DetachNormalCameraTarget();
         InitializeGolfCameraPitch();
-
-        // Try to find a nearby golf ball.
-        FindGolfBall();
 
         // We can prepare a shot even if there is no ball nearby.
         preparingShot = true;

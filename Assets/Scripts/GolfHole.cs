@@ -9,6 +9,10 @@ public class GolfHole : MonoBehaviour
     [SerializeField] private Transform particleSpawn;
     [SerializeField] private float maxEntrySpeed = 2f;
 
+    [Header("Vertical / Chipped Entry")]
+    [SerializeField] private float verticalEntryAngle = 60f;
+    [SerializeField] private float minimumHeightAboveHole = 0.05f;
+
     [Header("Ball Sink")]
     [SerializeField] private float sinkDepth = 0.25f;
     [SerializeField] private float sinkDuration = 0.4f;
@@ -46,10 +50,69 @@ public class GolfHole : MonoBehaviour
         if (rb == null)
             return;
 
-        if (rb.linearVelocity.magnitude > maxEntrySpeed)
+        // --------------------------------------------------------
+        // NORMAL ENTRY
+        // --------------------------------------------------------
+
+        bool normalEntryIsFast =
+            rb.linearVelocity.magnitude > maxEntrySpeed;
+
+        // --------------------------------------------------------
+        // VERTICAL / CHIPPED ENTRY
+        // --------------------------------------------------------
+
+        bool verticalEntry = IsVerticalEntry(other.transform, rb);
+
+        // Fast balls are rejected ONLY if they aren't entering
+        // vertically from above.
+        if (normalEntryIsFast && !verticalEntry)
             return;
 
         StartCoroutine(SinkBall(other.transform, rb));
+    }
+
+    private bool IsVerticalEntry(Transform ball, Rigidbody rb)
+    {
+        if (holeCenter == null)
+            return false;
+
+        Vector3 velocity = rb.linearVelocity;
+
+        // Must actually be moving.
+        if (velocity.sqrMagnitude < 0.001f)
+            return false;
+
+        // Ball must be above the hole.
+        float heightAboveHole =
+            ball.position.y - holeCenter.position.y;
+
+        if (heightAboveHole < minimumHeightAboveHole)
+            return false;
+
+        // Ball must be moving downward.
+        if (velocity.y >= 0f)
+            return false;
+
+        // Calculate how steeply the ball is descending.
+        //
+        // 0 degrees  = completely horizontal
+        // 90 degrees = completely vertical downward
+        float verticalSpeed = -velocity.y;
+
+        Vector3 horizontalVelocity = new Vector3(
+            velocity.x,
+            0f,
+            velocity.z
+        );
+
+        float horizontalSpeed = horizontalVelocity.magnitude;
+
+        float angle = Mathf.Atan2(
+            verticalSpeed,
+            horizontalSpeed
+        ) * Mathf.Rad2Deg;
+
+        return angle >= verticalEntryAngle;
     }
 
     private IEnumerator SinkBall(Transform ball, Rigidbody rb)

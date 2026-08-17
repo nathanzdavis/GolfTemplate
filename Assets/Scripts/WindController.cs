@@ -5,9 +5,6 @@ public class WindGenerator : MonoBehaviour
     [Header("Player")]
     [SerializeField] private Transform player;
 
-    [Header("Wind")]
-    [SerializeField] private float windSpeed = 10f;
-
     [Tooltip("Initial direction the wind PARTICLES travel.")]
     [SerializeField] private Vector3 windDirection = Vector3.forward;
 
