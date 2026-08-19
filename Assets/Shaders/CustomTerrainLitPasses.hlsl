@@ -11,6 +11,8 @@ float _MowStripeWidth;
 float _MowEdgeSoftness;
 float _MowDarkness;
 float _MowAngle;
+float _CheckerSize;
+float _CheckerDarkness;
 
 half GetMowStripeMask(float3 positionWS)
 {
@@ -42,6 +44,21 @@ half GetMowStripeMask(float3 positionWS)
     );
 
     return fadeIn * fadeOut;
+}
+
+half GetCheckerMask(float3 positionWS)
+{
+    float size = max(_CheckerSize, 0.001);
+
+    float2 checkerPosition = positionWS.xz / size;
+
+    // Floor creates individual square cells.
+    float2 cell = floor(checkerPosition);
+
+    // Alternate between 0 and 1.
+    float checker = fmod(cell.x + cell.y, 2.0);
+
+    return checker;
 }
 
 struct Attributes
@@ -487,6 +504,29 @@ void SplatmapFragment(
     );
 
         albedo *= mowMultiplier;
+
+    // ============================================================
+    
+    // ============================================================
+    // LAYER 3 CHECKER PATTERN
+    // ============================================================
+
+    // Layer 3 = Terrain Layer 3 = Alpha channel.
+    half layer3Mask = splatControl.a;
+
+    // Generate world-space checker pattern.
+    half checkerMask = GetCheckerMask(IN.positionWS);
+
+    // Only apply checker where Layer 3 exists.
+    checkerMask *= layer3Mask;
+
+    half checkerMultiplier = lerp(
+        1.0h,
+        1.0h - _CheckerDarkness,
+        checkerMask
+    );
+
+    albedo *= checkerMultiplier;
 
     // ============================================================
 

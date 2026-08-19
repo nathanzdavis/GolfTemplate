@@ -72,6 +72,22 @@ Shader "Custom/Terrain/Lit Mow"
             "Angle",
             Range(0.0, 360.0)
         ) = 45.0
+
+        // ============================================================
+        // CHECKER SETTINGS - LAYER 3
+        // ============================================================
+
+        [Header(Layer 3 Checker)]
+
+        _CheckerSize(
+            "Checker Size",
+            Float
+        ) = 8.0
+
+        _CheckerDarkness(
+            "Checker Darkness",
+            Range(0.0, 1.0)
+        ) = 0.20
     }
 
     HLSLINCLUDE

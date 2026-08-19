@@ -1,5 +1,6 @@
 using StarterAssets;
 using System;
+using System.Collections;
 using Unity.Cinemachine;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -173,34 +174,27 @@ public class GolfController : MonoBehaviour
 
     private StarterAssets.StarterAssetsInputs starterInputs;
 
-    [Header("Camera Prepositioning")]
+    [Header("Camera")]
     [SerializeField] private Transform normalCameraTarget;
-    [SerializeField] private Transform cameraPrepositionTarget;
-    [SerializeField] private float cameraPrepositionSpeed = 5f;
-    [SerializeField] private float cameraPrepositionDelay = 1f;
-    [SerializeField] private float cameraActivationDelay = 0.5f;
-    [SerializeField] private float cameraRotationTolerance = 1f;
+
     private Transform normalCameraTargetOriginalParent;
     private Vector3 normalCameraTargetOriginalLocalPosition;
-    private bool normalCameraTargetDetached;
-
-    private bool waitingForPrepareRotation;
-
-    private float cameraPrepositionTimer;
-    private float cameraActivationTimer;
-    private bool cameraPrepositionStarted;
+    private Quaternion normalCameraTargetOriginalLocalRotation;
 
     private Transform originalNormalFollow;
     private Transform originalNormalLookAt;
 
-    private Quaternion golfCameraTargetRotation;
     private CinemachineVirtualCamera normalCamera;
     private CinemachineVirtualCamera golfCamera;
 
     [Header("Camera Reattach")]
-    [SerializeField] private float cameraReattachSpeed = 8f;
+    [SerializeField] private float cameraReattachSpeed = .25f;
 
-    private bool reattachingNormalCameraTarget;
+    // Tracks whether the golf camera actually became active.
+    private bool golfCameraWasActivated;
+
+    // Coroutine replacing Invoke().
+    private Coroutine golfCameraActivationCoroutine;
 
     private static readonly int SwingState =
         Animator.StringToHash("GolfSwing");
@@ -297,11 +291,6 @@ public class GolfController : MonoBehaviour
 
         UpdateGolfClub();
 
-        if (reattachingNormalCameraTarget)
-        {
-            UpdateCameraTargetReattach();
-        }
-
         if (!preparingShot &&
             prepareQueued &&
             characterController != null &&
@@ -337,12 +326,6 @@ public class GolfController : MonoBehaviour
         UpdateShotAngle();
 
         UpdateCharge();
-
-        // Activate the golf camera only after preparation rotation is finished.
-        UpdatePrepareCameraActivation();
-
-        // Secretly move the normal camera toward the golf camera.
-        PrepositionNormalCamera();
 
         // Update aim guide
         UpdateShotAimLine();
@@ -474,8 +457,6 @@ public class GolfController : MonoBehaviour
 
     private void CancelBallPreparation()
     {
-        waitingForPrepareRotation = false;
-
         thirdPersonController.SetCameraTargetLocked(false);
 
         // Stop charge audio.
@@ -526,10 +507,25 @@ public class GolfController : MonoBehaviour
         SetCharacterControllerEnabled(true);
         RestorePlayerInput();
 
-        // Return to normal camera.
+        // Cancel any pending golf-camera activation.
+        if (golfCameraActivationCoroutine != null)
+        {
+            StopCoroutine(golfCameraActivationCoroutine);
+            golfCameraActivationCoroutine = null;
+        }
+
+        // Return to the normal camera.
         SetGolfCameraActive(false);
 
-        StopCameraPreposition();
+        // If the golf camera never activated, this is an early cancel.
+        // In that case restore the original target and do NOT modify
+        // the player's camera angles.
+        //
+        // If the golf camera did activate, use the normal golf-camera
+        // exit behavior.
+        ReAttachNormalCameraTarget(golfCameraWasActivated);
+
+        golfCameraWasActivated = false;
     }
 
     private void SetLockMovementFalse()
@@ -633,180 +629,74 @@ public class GolfController : MonoBehaviour
         if (normalCameraTarget == null)
             return;
 
-        // Detach while preserving its current world position/rotation.
-        normalCameraTarget.SetParent(null);
-
-        normalCameraTargetDetached = true;
+        normalCameraTarget.SetParent(null, true);
     }
 
-    private void ReAttachNormalCameraTarget()
+    private void ReAttachNormalCameraTarget(bool golfCameraWasActive)
     {
         if (normalCameraTarget == null)
             return;
 
-        // Detach while preserving its current world position/rotation.
-        normalCameraTarget.SetParent(normalCameraTargetOriginalParent);
-        normalCameraTarget.localPosition = normalCameraTargetOriginalLocalPosition;
-        normalCameraTargetDetached = false;
-    }
+        // Reattach to the original parent.
+        normalCameraTarget.SetParent(
+            normalCameraTargetOriginalParent,
+            false
+        );
 
-    private void StartCameraTargetReattach()
-    {
-        if (normalCameraTarget == null || !normalCameraTargetDetached)
-            return;
-
-        // Reparent while preserving the camera target's current
-        // world position and rotation.
-        normalCameraTarget.SetParent(transform, true);
-
-        reattachingNormalCameraTarget = true;
-    }
-
-
-    private void UpdateCameraTargetReattach()
-    {
-        if (normalCameraTarget == null)
-        {
-            reattachingNormalCameraTarget = false;
-            normalCameraTargetDetached = false;
-            return;
-        }
-
-        // Smoothly move from the current local position back
-        // to the original position it had before detaching.
+        // Restore ONLY the known static local position.
         normalCameraTarget.localPosition =
-            Vector3.Lerp(
-                normalCameraTarget.localPosition,
-                normalCameraTargetOriginalLocalPosition,
-                cameraReattachSpeed * Time.deltaTime
-            );
+            normalCameraTargetOriginalLocalPosition;
 
-        // Also smoothly restore the original local rotation if needed.
-        // This is optional, but prevents any rotation offset from
-        // remaining after the camera preparation.
-        normalCameraTarget.localRotation =
-            Quaternion.Slerp(
-                normalCameraTarget.localRotation,
-                Quaternion.identity,
-                cameraReattachSpeed * Time.deltaTime
-            );
-
-        // Finish once we're sufficiently close.
-        if (Vector3.Distance(
-                normalCameraTarget.localPosition,
-                normalCameraTargetOriginalLocalPosition) < 0.001f)
+        if (golfCameraWasActive)
         {
-            normalCameraTarget.localPosition =
-                normalCameraTargetOriginalLocalPosition;
+            // Golf camera actually became active, so this is
+            // the normal golf -> player camera transition.
+            normalCameraTarget.eulerAngles =
+                golfCameraOrbitCenter.eulerAngles;
 
-            reattachingNormalCameraTarget = false;
-            normalCameraTargetDetached = false;
+            thirdPersonController.SetCameraAngles(
+                transform.eulerAngles.y - 90f,
+                golfCameraOrbitCenter.eulerAngles.x
+            );
         }
     }
 
-    private void StartCameraPreposition()
+    private void ReAttachNormalCameraTargetEarlyCancel()
     {
-        if (cameraPrepositionTarget == null ||
-            golfCameraTransform == null)
+        if (normalCameraTarget == null)
             return;
 
-        cameraPrepositionTarget.rotation =
-            golfCameraTransform.rotation;
+        // Reattach without changing its current world rotation.
+        normalCameraTarget.SetParent(
+            normalCameraTargetOriginalParent,
+            true
+        );
+
+        // Position is static, so restore the original position.
+        normalCameraTarget.localPosition =
+            normalCameraTargetOriginalLocalPosition;
     }
 
-    private void StopCameraPreposition()
+    private void ReAttachNormalCameraTargetAfterGolf()
     {
-        ReAttachNormalCameraTarget();
-
-        if (normalCamera == null)
+        if (normalCameraTarget == null)
             return;
 
-        normalCamera.Follow = originalNormalFollow;
-        normalCamera.LookAt = originalNormalLookAt;
-    }
+        normalCameraTarget.SetParent(
+            normalCameraTargetOriginalParent,
+            true
+        );
 
-    private void PrepositionNormalCamera()
-    {
-        if (normalCameraTarget == null ||
-            cameraPrepositionTarget == null ||
-            golfCameraTransform == null)
-            return;
+        normalCameraTarget.localPosition =
+            normalCameraTargetOriginalLocalPosition;
 
-        if (!cameraPrepositionStarted)
-        {
-            cameraPrepositionTimer += Time.deltaTime;
-
-            if (cameraPrepositionTimer < cameraPrepositionDelay)
-                return;
-
-            cameraPrepositionStarted = true;
-
-            // Start the temporary target at the current
-            // normal target rotation.
-            cameraPrepositionTarget.rotation =
-                normalCameraTarget.rotation;
-        }
-
-        // Slowly move the temporary target toward
-        // the golf camera's current orientation.
-        cameraPrepositionTarget.rotation =
-            Quaternion.Slerp(
-                cameraPrepositionTarget.rotation,
-                golfCameraTransform.rotation,
-                cameraPrepositionSpeed * Time.deltaTime
-            );
-
-        // Then move the ORIGINAL camera target toward it.
-        normalCameraTarget.rotation =
-            Quaternion.Slerp(
-                normalCameraTarget.rotation,
-                cameraPrepositionTarget.rotation,
-                cameraPrepositionSpeed * Time.deltaTime
-            );
-
-        Vector3 angles = normalCameraTarget.rotation.eulerAngles;
+        normalCameraTarget.eulerAngles =
+            golfCameraOrbitCenter.eulerAngles;
 
         thirdPersonController.SetCameraAngles(
-            angles.y,
-            angles.x
+            transform.eulerAngles.y - 90f,
+            golfCameraOrbitCenter.eulerAngles.x
         );
-    }
-
-    private void UpdatePrepareCameraActivation()
-    {
-        if (!preparingShot || !waitingForPrepareRotation)
-            return;
-
-        // Always wait this long before even attempting
-        // to activate the golf camera.
-        cameraActivationTimer += Time.deltaTime;
-
-        if (cameraActivationTimer < cameraActivationDelay)
-            return;
-
-        bool rotationFinished;
-
-        if (golfBall != null)
-        {
-            // Wait until the player is facing the ball.
-            rotationFinished =
-                Quaternion.Angle(
-                    transform.rotation,
-                    prepareTargetRotation
-                ) <= cameraRotationTolerance;
-        }
-        else
-        {
-            // Free preparation has no target rotation.
-            rotationFinished = true;
-        }
-
-        if (!rotationFinished)
-            return;
-
-        waitingForPrepareRotation = false;
-
-        SetGolfCameraActive(true);
     }
 
     private void SetGolfCameraActive(bool active)
@@ -839,20 +729,20 @@ public class GolfController : MonoBehaviour
         // Find the ball first so we know which preparation mode we need.
         FindGolfBall();
 
+        // Ball preparation requires the player to be grounded.
+        if (characterController != null &&
+            !characterController.isGrounded)
+        {
+            prepareQueued = true;
+            return;
+        }
+
         // No ball nearby:
         // Always allow free preparation immediately.
         if (golfBall == null)
         {
             prepareQueued = false;
             StartPreparingShot();
-            return;
-        }
-
-        // Ball preparation requires the player to be grounded.
-        if (characterController != null &&
-            !characterController.isGrounded)
-        {
-            prepareQueued = true;
             return;
         }
 
@@ -863,7 +753,6 @@ public class GolfController : MonoBehaviour
     private void StartPreparingShot()
     {
         thirdPersonController.SetCameraTargetLocked(true);
-        DetachNormalCameraTarget();
         InitializeGolfCameraPitch();
 
         // We can prepare a shot even if there is no ball nearby.
@@ -923,13 +812,17 @@ public class GolfController : MonoBehaviour
             }
         }
 
-        StartCameraPreposition();
+        DetachNormalCameraTarget();
 
-        cameraPrepositionTimer = 0f;
-        cameraActivationTimer = 0f;
-        cameraPrepositionStarted = false;
+        golfCameraWasActivated = false;
 
-        waitingForPrepareRotation = true;
+        if (golfCameraActivationCoroutine != null)
+        {
+            StopCoroutine(golfCameraActivationCoroutine);
+        }
+
+        golfCameraActivationCoroutine =
+            StartCoroutine(ActivateGolfCameraAfterDelay());
 
         if (golfShotUI != null)
         {
@@ -937,7 +830,23 @@ public class GolfController : MonoBehaviour
             golfShotUI.SetCharge(0f);
             golfShotUI.SetAngle(shotAngle);
         }
+    }
 
+    private IEnumerator ActivateGolfCameraAfterDelay()
+    {
+        yield return new WaitForSeconds(cameraReattachSpeed);
+
+        // Preparation may have been cancelled during the delay.
+        if (!preparingShot)
+        {
+            golfCameraActivationCoroutine = null;
+            yield break;
+        }
+
+        SetGolfCameraActive(true);
+
+        golfCameraWasActivated = true;
+        golfCameraActivationCoroutine = null;
     }
 
     private void PrepareCanceled(InputAction.CallbackContext context)
@@ -1083,7 +992,9 @@ public class GolfController : MonoBehaviour
         directionToBall.y = 0f;
 
         if (directionToBall.sqrMagnitude < 0.001f)
+        {
             return;
+        }
 
         prepareTargetRotation =
             Quaternion.LookRotation(directionToBall);
@@ -1579,7 +1490,7 @@ public class GolfController : MonoBehaviour
             animator.SetTrigger("SwingFinished");
         }
 
-        StopCameraPreposition();
+        ReAttachNormalCameraTarget(true);
     }
 
 
