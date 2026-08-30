@@ -217,6 +217,41 @@ public class GolfController : MonoBehaviour
     [SerializeField] private float golfCameraHeight = 2f;
     [SerializeField] private float golfCameraLookAtOffset = 0.5f;
 
+    // ============================================================
+    // MINIMAP ACCESS
+    // ============================================================
+
+    [Header("Minimap")]
+    public float CurrentShotAngle => shotAngle;
+
+    public float CurrentChargePercent =>
+        chargeAmount / 100f;
+
+    public float MaxShotForce => maxShotForce;
+
+    public float CurrentLaunchSpeed
+    {
+        get
+        {
+            if (golfBall == null)
+                return 0f;
+
+            float charge =
+                CurrentChargePercent;
+
+            // Show full-power prediction before charging.
+            if (charge <= 0.001f)
+                charge = 1f;
+
+            float force =
+                maxShotForce * charge;
+
+            return force / golfBall.mass;
+        }
+    }
+
+    public Rigidbody CurrentGolfBall => golfBall;
+
     private float golfCameraPitch;
 
     // ============================================================
@@ -1503,30 +1538,11 @@ public class GolfController : MonoBehaviour
         if (golfBall == null)
             return;
 
-        Camera mainCamera = Camera.main;
-
-        if (mainCamera == null)
-            return;
-
-        Vector3 forward =
-            mainCamera.transform.forward;
-
-        forward.y = 0f;
-
-        if (forward.sqrMagnitude < 0.001f)
-            return;
-
-        forward.Normalize();
-
-        float angle =
-            shotAngle *
-            Mathf.Deg2Rad;
-
         Vector3 shotDirection =
-            forward * Mathf.Cos(angle) +
-            Vector3.up * Mathf.Sin(angle);
+            GetCurrentShotDirection();
 
-        shotDirection.Normalize();
+        if (shotDirection.sqrMagnitude < 0.001f)
+            return;
 
         float chargeMultiplier =
             chargeAmount / 100f;
@@ -1535,7 +1551,8 @@ public class GolfController : MonoBehaviour
             maxShotForce *
             chargeMultiplier;
 
-        GolfBall ball = golfBall.GetComponent<GolfBall>();
+        GolfBall ball =
+            golfBall.GetComponent<GolfBall>();
 
         if (ball != null)
         {
@@ -1544,12 +1561,49 @@ public class GolfController : MonoBehaviour
                 force
             );
 
+            // Count the stroke only when the ball is actually launched.
+            if (GameController.Instance != null)
+            {
+                GameController.Instance.AddStroke();
+            }
+
             PlayHitEffects(
                 chargeMultiplier
             );
 
             PlayHitSound();
         }
+    }
+
+    // ============================================================
+    // SHOT DIRECTION
+    // ============================================================
+
+    public Vector3 GetCurrentShotDirection()
+    {
+        Camera mainCamera = Camera.main;
+
+        if (mainCamera == null)
+            return Vector3.zero;
+
+        Vector3 forward = mainCamera.transform.forward;
+
+        // Ignore camera pitch when determining horizontal aim.
+        forward.y = 0f;
+
+        if (forward.sqrMagnitude < 0.001f)
+            return Vector3.zero;
+
+        forward.Normalize();
+
+        float angle =
+            shotAngle * Mathf.Deg2Rad;
+
+        Vector3 shotDirection =
+            forward * Mathf.Cos(angle) +
+            Vector3.up * Mathf.Sin(angle);
+
+        return shotDirection.normalized;
     }
 
     // ============================================================

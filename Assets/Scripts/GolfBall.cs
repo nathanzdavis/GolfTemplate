@@ -336,4 +336,9 @@ public class GolfBall : MonoBehaviour
 
         trailRenderer.emitting = moving;
     }
+
+    public float GetLaunchSpeed(float force)
+    {
+        return force / rb.mass;
+    }
 }

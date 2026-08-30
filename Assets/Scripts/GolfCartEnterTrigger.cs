@@ -1,13 +1,23 @@
 using UnityEngine;
 
-public class GolfCartEnterTrigger : MonoBehaviour
+public class GolfCartEnterTrigger : MonoBehaviour, IInteractable
 {
     [SerializeField] private GolfCartController golfCart;
+
+    private InteractionSystem playerInteraction;
 
     private void OnTriggerEnter(Collider other)
     {
         if (!IsPlayer(other))
             return;
+
+        playerInteraction =
+            other.GetComponentInParent<InteractionSystem>();
+
+        if (playerInteraction != null)
+        {
+            playerInteraction.SetInteractable(this);
+        }
 
         golfCart.SetPlayerNearby(other, true);
     }
@@ -17,16 +27,31 @@ public class GolfCartEnterTrigger : MonoBehaviour
         if (!IsPlayer(other))
             return;
 
+        if (playerInteraction != null)
+        {
+            playerInteraction.SetInteractable(null);
+            playerInteraction = null;
+        }
+
         golfCart.SetPlayerNearby(other, false);
+    }
+
+    public void Interact()
+    {
+        golfCart.Interact();
+
+        // Hide the prompt after pressing interact.
+        if (playerInteraction != null)
+        {
+            playerInteraction.SetInteractable(null);
+        }
     }
 
     private bool IsPlayer(Collider other)
     {
-        // Check the object or one of its parents for the Player tag.
         if (!other.transform.root.CompareTag("Player"))
             return false;
 
-        // Make sure it actually has a CharacterController.
         return other.GetComponentInParent<CharacterController>() != null;
     }
 }

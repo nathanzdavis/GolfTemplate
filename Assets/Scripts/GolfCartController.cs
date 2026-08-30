@@ -3,6 +3,7 @@ using Unity.Cinemachine;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using StarterAssets;
+using System.Runtime.CompilerServices;
 
 public class GolfCartController : MonoBehaviour
 {
@@ -369,9 +370,14 @@ public class GolfCartController : MonoBehaviour
 
     private void OnInteract(InputAction.CallbackContext context)
     {
-        if (!context.started)
-            return;
+        if (driving)
+        {
+            Interact();
+        }
+    }
 
+    public void Interact()
+    {
         if (driving)
         {
             ExitCart();

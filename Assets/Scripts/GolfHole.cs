@@ -16,6 +16,7 @@ public class GolfHole : MonoBehaviour
     [Header("Ball Sink")]
     [SerializeField] private float sinkDepth = 0.25f;
     [SerializeField] private float sinkDuration = 0.4f;
+
     [SerializeField]
     private AnimationCurve sinkCurve =
         AnimationCurve.EaseInOut(0f, 0f, 1f, 1f);
@@ -36,6 +37,10 @@ public class GolfHole : MonoBehaviour
     [SerializeField] private float cameraShakeForce = 1f;
 
     private bool ballSinking;
+
+    // ============================================================
+    // COLLISION
+    // ============================================================
 
     private void OnTriggerEnter(Collider other)
     {
@@ -61,61 +66,123 @@ public class GolfHole : MonoBehaviour
         // VERTICAL / CHIPPED ENTRY
         // --------------------------------------------------------
 
-        bool verticalEntry = IsVerticalEntry(other.transform, rb);
+        bool verticalEntry =
+            IsVerticalEntry(other.transform, rb);
 
-        // Fast balls are rejected ONLY if they aren't entering
-        // vertically from above.
+        // Fast balls are rejected unless they are
+        // entering the hole from above at a steep angle.
         if (normalEntryIsFast && !verticalEntry)
             return;
 
-        StartCoroutine(SinkBall(other.transform, rb));
+        StartCoroutine(
+            SinkBall(
+                other.transform,
+                rb
+            )
+        );
     }
 
-    private bool IsVerticalEntry(Transform ball, Rigidbody rb)
+    // ============================================================
+    // VERTICAL ENTRY
+    // ============================================================
+
+    private bool IsVerticalEntry(
+        Transform ball,
+        Rigidbody rb)
     {
         if (holeCenter == null)
             return false;
 
-        Vector3 velocity = rb.linearVelocity;
+        Vector3 velocity =
+            rb.linearVelocity;
 
         // Must actually be moving.
         if (velocity.sqrMagnitude < 0.001f)
             return false;
 
-        // Ball must be above the hole.
-        float heightAboveHole =
-            ball.position.y - holeCenter.position.y;
-
-        if (heightAboveHole < minimumHeightAboveHole)
-            return false;
-
-        // Ball must be moving downward.
-        if (velocity.y >= 0f)
-            return false;
-
-        // Calculate how steeply the ball is descending.
+        // --------------------------------------------------------
+        // HOLE LOCAL UP
         //
-        // 0 degrees  = completely horizontal
-        // 90 degrees = completely vertical downward
-        float verticalSpeed = -velocity.y;
+        // This allows the hole to be rotated anywhere.
+        // --------------------------------------------------------
 
-        Vector3 horizontalVelocity = new Vector3(
-            velocity.x,
-            0f,
-            velocity.z
-        );
+        Vector3 holeUp =
+            holeCenter.up.normalized;
 
-        float horizontalSpeed = horizontalVelocity.magnitude;
+        // --------------------------------------------------------
+        // HEIGHT ABOVE HOLE
+        // --------------------------------------------------------
 
-        float angle = Mathf.Atan2(
-            verticalSpeed,
-            horizontalSpeed
-        ) * Mathf.Rad2Deg;
+        Vector3 ballToHole =
+            ball.position -
+            holeCenter.position;
+
+        float heightAboveHole =
+            Vector3.Dot(
+                ballToHole,
+                holeUp
+            );
+
+        if (heightAboveHole <
+            minimumHeightAboveHole)
+        {
+            return false;
+        }
+
+        // --------------------------------------------------------
+        // MOVING DOWN TOWARD THE HOLE
+        // --------------------------------------------------------
+
+        float downwardSpeed =
+            -Vector3.Dot(
+                velocity,
+                holeUp
+            );
+
+        if (downwardSpeed <= 0f)
+            return false;
+
+        // --------------------------------------------------------
+        // HORIZONTAL VELOCITY RELATIVE TO HOLE
+        // --------------------------------------------------------
+
+        Vector3 verticalVelocity =
+            holeUp *
+            Vector3.Dot(
+                velocity,
+                holeUp
+            );
+
+        Vector3 horizontalVelocity =
+            velocity -
+            verticalVelocity;
+
+        float horizontalSpeed =
+            horizontalVelocity.magnitude;
+
+        // --------------------------------------------------------
+        // ENTRY ANGLE
+        //
+        // 0°  = completely horizontal
+        // 90° = completely vertical
+        // --------------------------------------------------------
+
+        float angle =
+            Mathf.Atan2(
+                downwardSpeed,
+                horizontalSpeed
+            ) * Mathf.Rad2Deg;
 
         return angle >= verticalEntryAngle;
     }
 
-    private IEnumerator SinkBall(Transform ball, Rigidbody rb)
+    // ============================================================
+    // SINK BALL
+    // ============================================================
+
+    private IEnumerator SinkBall(
+        Transform ball,
+        Rigidbody rb)
     {
         ballSinking = true;
 
@@ -123,13 +190,14 @@ public class GolfHole : MonoBehaviour
         rb.angularVelocity = Vector3.zero;
         rb.isKinematic = true;
 
-        Vector3 startPosition = ball.position;
+        Vector3 startPosition =
+            ball.position;
 
-        Vector3 targetPosition = new Vector3(
-            holeCenter.position.x,
-            holeCenter.position.y - sinkDepth,
-            holeCenter.position.z
-        );
+        // Sink along the hole's local down direction.
+        Vector3 targetPosition =
+            holeCenter.position -
+            holeCenter.up.normalized *
+            sinkDepth;
 
         float elapsed = 0f;
 
@@ -137,24 +205,38 @@ public class GolfHole : MonoBehaviour
         {
             elapsed += Time.deltaTime;
 
-            float t = Mathf.Clamp01(elapsed / sinkDuration);
-            float curvedT = sinkCurve.Evaluate(t);
+            float t =
+                Mathf.Clamp01(
+                    elapsed / sinkDuration
+                );
 
-            ball.position = Vector3.Lerp(
-                startPosition,
-                targetPosition,
-                curvedT
-            );
+            float curvedT =
+                sinkCurve.Evaluate(t);
+
+            ball.position =
+                Vector3.Lerp(
+                    startPosition,
+                    targetPosition,
+                    curvedT
+                );
 
             yield return null;
         }
 
-        ball.position = targetPosition;
+        ball.position =
+            targetPosition;
 
-        OnBallHoled(ball.gameObject);
+        OnBallHoled(
+            ball.gameObject
+        );
     }
 
-    private void OnBallHoled(GameObject ball)
+    // ============================================================
+    // BALL HOLED
+    // ============================================================
+
+    private void OnBallHoled(
+        GameObject ball)
     {
         Debug.Log("BALL HOLED!");
 
@@ -163,22 +245,36 @@ public class GolfHole : MonoBehaviour
         ShakeCamera();
         ExplodeNearbyPlayers();
 
+        GameController.Instance.CompleteHole();
+
         ball.SetActive(false);
     }
+
+    // ============================================================
+    // PARTICLES
+    // ============================================================
 
     private void SpawnHoleParticles()
     {
         if (holeParticle == null)
             return;
 
-        ParticleSystem particles = Instantiate(
-            holeParticle,
-            particleSpawn.position,
-            Quaternion.identity
-        );
+        ParticleSystem particles =
+            Instantiate(
+                holeParticle,
+                particleSpawn.position,
+                Quaternion.identity
+            );
 
-        Destroy(particles.gameObject, particleLifetime);
+        Destroy(
+            particles.gameObject,
+            particleLifetime
+        );
     }
+
+    // ============================================================
+    // AUDIO
+    // ============================================================
 
     private void PlayHoleSound()
     {
@@ -188,52 +284,99 @@ public class GolfHole : MonoBehaviour
         holeAudioSource.Play();
     }
 
+    // ============================================================
+    // CAMERA SHAKE
+    // ============================================================
+
     private void ShakeCamera()
     {
         if (impulseSource == null)
             return;
 
-        impulseSource.GenerateImpulse(cameraShakeForce);
+        impulseSource.GenerateImpulse(
+            cameraShakeForce
+        );
     }
+
+    // ============================================================
+    // PLAYER EXPLOSION
+    // ============================================================
 
     private void ExplodeNearbyPlayers()
     {
-        Collider[] nearbyObjects = Physics.OverlapSphere(
-            transform.position,
-            explosionRadius,
-            playerLayer
-        );
+        Collider[] nearbyObjects =
+            Physics.OverlapSphere(
+                holeCenter.position,
+                explosionRadius,
+                playerLayer
+            );
 
         foreach (Collider col in nearbyObjects)
         {
             StarterAssets.ThirdPersonController player =
-                col.GetComponentInParent<StarterAssets.ThirdPersonController>();
+                col.GetComponentInParent<
+                    StarterAssets.ThirdPersonController
+                >();
 
             if (player == null)
                 continue;
 
+            // Direction away from the hole.
             Vector3 direction =
-                player.transform.position - transform.position;
+                player.transform.position -
+                holeCenter.position;
 
-            direction.y = 0f;
+            // Keep the horizontal portion relative
+            // to the hole's orientation.
+            direction =
+                Vector3.ProjectOnPlane(
+                    direction,
+                    holeCenter.up
+                );
 
             if (direction.sqrMagnitude < 0.001f)
-                direction = Vector3.forward;
+            {
+                direction =
+                    holeCenter.forward;
+            }
 
             direction.Normalize();
 
-            Vector3 force = direction * explosionForce;
-            force.y = explosionUpwardForce;
+            // Horizontal explosion.
+            Vector3 force =
+                direction *
+                explosionForce;
 
-            player.ApplyKnockback(force);
+            // Upward force relative to the hole.
+            force +=
+                holeCenter.up *
+                explosionUpwardForce;
+
+            player.ApplyKnockback(
+                force
+            );
         }
     }
 
+    // ============================================================
+    // GIZMOS
+    // ============================================================
+
     private void OnDrawGizmosSelected()
     {
+        if (holeCenter == null)
+            return;
+
         Gizmos.DrawWireSphere(
-            transform.position,
+            holeCenter.position,
             explosionRadius
+        );
+
+        // Show the hole's local up direction.
+        Gizmos.DrawLine(
+            holeCenter.position,
+            holeCenter.position +
+            holeCenter.up
         );
     }
 }
