@@ -144,6 +144,15 @@ public class GolfCartController : MonoBehaviour
     [Header("Cart Lights")]
     [SerializeField] private Light[] brakeLights;
 
+    [Header("Enter Trigger")]
+    [SerializeField] private GameObject enterTrigger;
+    [SerializeField] private MeshRenderer enterTriggerRenderer;
+    [SerializeField] private float stationarySpeedThreshold = 0.1f;
+    [SerializeField] private float maxGroundAngle = 10f;
+    [SerializeField] private float stationaryRequiredTime = 1.5f;
+
+    private float stationaryTimer;
+
     // ============================================================
     // STATE
     // ============================================================
@@ -291,6 +300,8 @@ public class GolfCartController : MonoBehaviour
 
     private void Update()
     {
+        UpdateEnterTrigger();
+
         if (driving)
         {
             KeepPlayerInSeat();
@@ -303,6 +314,63 @@ public class GolfCartController : MonoBehaviour
         else
         {
             UpdateExitedEngineAudio();
+        }
+    }
+
+    private void UpdateEnterTrigger()
+    {
+        if (enterTriggerRenderer == null || rb == null)
+            return;
+
+        // Never show the enter indicator while driving.
+        if (driving)
+        {
+            stationaryTimer = 0f;
+            enterTriggerRenderer.enabled = false;
+            return;
+        }
+
+        // Cart must be essentially stationary.
+        bool stationary =
+            rb.linearVelocity.magnitude <= stationarySpeedThreshold &&
+            rb.angularVelocity.magnitude <= stationarySpeedThreshold;
+
+        // Cart must be upright.
+        float groundAngle = Vector3.Angle(
+            transform.up,
+            Vector3.up
+        );
+
+        bool upright = groundAngle <= maxGroundAngle;
+
+        // All four wheels must be touching the ground.
+        bool grounded =
+            frontLeftWheel != null &&
+            frontRightWheel != null &&
+            rearLeftWheel != null &&
+            rearRightWheel != null &&
+            frontLeftWheel.isGrounded &&
+            frontRightWheel.isGrounded &&
+            rearLeftWheel.isGrounded &&
+            rearRightWheel.isGrounded;
+
+        bool valid = stationary && upright && grounded;
+
+        if (!valid)
+        {
+            // Immediately hide it if the cart starts moving/rocking.
+            stationaryTimer = 0f;
+            enterTriggerRenderer.enabled = false;
+            return;
+        }
+
+        // Cart is valid, but require it to stay valid
+        // for the required amount of time.
+        stationaryTimer += Time.deltaTime;
+
+        if (stationaryTimer >= stationaryRequiredTime)
+        {
+            enterTriggerRenderer.enabled = true;
         }
     }
 
